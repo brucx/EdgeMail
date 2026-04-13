@@ -121,6 +121,36 @@ Set `ADMIN_EMAIL` as a regular Worker variable in `wrangler.jsonc` or in the Clo
 3. Under **Routing Rules**, create a **Catch-all** rule pointing to the `edgemail` Worker
 4. Configure DNS records as prompted by Cloudflare
 
+## Syncing to a Production Fork
+
+When you maintain a separate production fork (e.g., `edgemail-prod`) with tailored configurations (such as specific D1 IDs, environment variables, or differences in `wrangler.jsonc` and `package.json`), you'll want to sync upstream source changes without inadvertently overwriting your production setup.
+
+**Recommended Workflow using Git Cherry-Pick:**
+
+1. **Add the production repository as a remote**
+   ```bash
+   git remote add prod git@github.com:your-org/edgemail-prod.git
+   git fetch prod
+   ```
+
+2. **Create a temporary branch from your production `main`**
+   ```bash
+   git checkout -b temp-prod prod/main
+   ```
+
+3. **Cherry-pick upstream feature and fix commits**
+   Find the commit hashes you want to sync using `git log` locally, then pick them onto your temp branch.
+   ```bash
+   git cherry-pick <commit-hash-1> <commit-hash-2>
+   ```
+
+4. **Push back to production and clean up**
+   ```bash
+   git push prod temp-prod:main
+   git checkout main
+   git branch -D temp-prod
+   ```
+
 ## Project Structure
 
 ```
