@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@server/*": ["./src/server/*"],
+      "@client/*": ["./src/client/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@/*": ["./src/client/*"]
+    },
+    "types": ["@cloudflare/workers-types/2023-07-01", "vite/client", "node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "drizzle.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

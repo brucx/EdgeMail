@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Drizzle
+drizzle/meta/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+*.local
+
+# TanStack Router generated
+src/client/routeTree.gen.ts
+
+# Types generated
+worker-configuration.d.ts

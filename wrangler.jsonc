@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "edgemail",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets (React SPA)
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application"
+  },
+
+  // D1 Database
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "edgemail-db",
+      "database_id": "YOUR_D1_DATABASE_ID",
+      "migrations_dir": "drizzle"
+    }
+  ],
+
+  // R2 Storage (raw emails + attachments)
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "edgemail-storage"
+    }
+  ],
+
+  // NOTE: Email routing (catch-all) is configured in the Cloudflare dashboard,
+  // not in wrangler.jsonc. Set up a catch-all rule pointing to this Worker
+  // in your domain's Email Routing settings.
+
+  // Environment variables (set via dashboard or .dev.vars)
+  "vars": {
+    "APP_NAME": "EdgeMail",
+    "ADMIN_EMAIL": "admin@example.com"
+  }
+}
