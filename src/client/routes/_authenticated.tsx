@@ -24,17 +24,17 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: () => {
-    // Phase 1 placeholder guard: protected routes require a session cookie.
-    // Phase 2 will replace this with server-backed session validation.
-    if (
-      typeof document !== "undefined" &&
-      !document.cookie
-        .split(";")
-        .map((cookie) => cookie.trim())
-        .some((cookie) => cookie.startsWith("session="))
-    ) {
-      throw redirect({ to: "/login" });
+  beforeLoad: async ({ context, location }) => {
+    try {
+      await context.queryClient.ensureQueryData({
+        queryKey: ["auth", "me"],
+        queryFn: () => api.get<{ data: any }>("/auth/me"),
+      });
+    } catch (error) {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href },
+      });
     }
   },
   component: AuthenticatedLayout,
