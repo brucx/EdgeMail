@@ -8,7 +8,8 @@
   // Static assets (React SPA)
   "assets": {
     "directory": "./dist/client",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   },
 
   // D1 Database
