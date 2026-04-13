@@ -47,6 +47,10 @@ setup.post(
 
     const { email, password, displayName } = c.req.valid("json");
 
+    if (email !== c.env.ADMIN_EMAIL) {
+      return c.json({ error: "Email must match ADMIN_EMAIL in environment" }, 403);
+    }
+
     // Hash password
     const passwordHash = await hashPassword(password);
 

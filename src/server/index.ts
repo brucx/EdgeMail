@@ -32,21 +32,10 @@ app.onError((err, c) => {
 
 app.use("/*", cors());
 
-// Inject Drizzle DB instance into every request + auto-create tables on first request
-let dbInitialized = false;
+// Inject Drizzle DB instance into every request
 app.use("/api/*", async (c, next) => {
   const db = createDb(c.env.DB);
   c.set("db", db);
-
-  // Auto-create tables on first request (IF NOT EXISTS — safe to run repeatedly)
-  if (!dbInitialized) {
-    try {
-      await ensureTablesExist(c.env.DB);
-    } catch (err) {
-      console.error("[EdgeMail] Auto-migration error:", err);
-    }
-    dbInitialized = true;
-  }
 
   return next();
 });

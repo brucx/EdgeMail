@@ -72,7 +72,7 @@ auth.post(
     // Set session cookie
     setCookie(c, "session", token, {
       httpOnly: true,
-      secure: true,
+      secure: c.req.url.startsWith("https://"),
       sameSite: "Lax",
       path: "/",
       maxAge: SESSION_MAX_AGE,
