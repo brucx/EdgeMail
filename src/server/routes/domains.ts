@@ -212,9 +212,8 @@ domainsRouter.delete("/:id", async (c) => {
 
 /**
  * POST /api/domains/:id/verify
- * Verify domain MX records.
- * Note: Full DNS lookup is not available in Workers. This sets mxVerified based on
- * a simple check — in production, integrate with Cloudflare API for real verification.
+ * Verify domain MX records via Cloudflare DNS-over-HTTPS.
+ * Checks that at least one MX record points to Cloudflare Email Routing.
  */
 domainsRouter.post("/:id/verify", async (c) => {
   const db = c.get("db");
@@ -231,9 +230,63 @@ domainsRouter.post("/:id/verify", async (c) => {
     return c.json({ error: "Domain not found" }, 404);
   }
 
-  // In a Worker, we can't do DNS lookups directly.
-  // Mark as verified and set status to active.
-  // A more robust implementation would use the Cloudflare API.
+  // Query MX records via Cloudflare DNS-over-HTTPS
+  const CLOUDFLARE_MX_HOSTS = [
+    "route1.mx.cloudflare.net",
+    "route2.mx.cloudflare.net",
+    "route3.mx.cloudflare.net",
+  ];
+
+  try {
+    const dnsRes = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain.domain)}&type=MX`,
+      { headers: { Accept: "application/dns-json" } },
+    );
+
+    if (!dnsRes.ok) {
+      return c.json(
+        { error: "DNS lookup failed, please try again later" },
+        502,
+      );
+    }
+
+    const dnsData = (await dnsRes.json()) as {
+      Status: number;
+      Answer?: Array<{ type: number; data: string }>;
+    };
+
+    // MX answers have type 15; data format is "priority host."
+    const mxRecords = (dnsData.Answer ?? [])
+      .filter((r) => r.type === 15)
+      .map((r) => {
+        // data looks like "69 route1.mx.cloudflare.net."
+        const parts = r.data.split(" ");
+        return (parts[1] ?? "").replace(/\.$/, "").toLowerCase();
+      });
+
+    const hasCloudflare = mxRecords.some((host) =>
+      CLOUDFLARE_MX_HOSTS.includes(host),
+    );
+
+    if (!hasCloudflare) {
+      return c.json(
+        {
+          error: "MX verification failed",
+          details: {
+            found: mxRecords.length > 0 ? mxRecords : ["(no MX records)"],
+            expected: CLOUDFLARE_MX_HOSTS,
+            hint: "Add an MX record pointing to route1.mx.cloudflare.net (priority 69) in your DNS settings, then try again.",
+          },
+        },
+        422,
+      );
+    }
+  } catch (err) {
+    console.error("[EdgeMail] DNS lookup error:", err);
+    return c.json({ error: "DNS lookup failed due to a network error" }, 502);
+  }
+
+  // MX verified — activate domain
   await db
     .update(domains)
     .set({

@@ -48,10 +48,23 @@ function DomainsPage() {
       queryClient.invalidateQueries({ queryKey: ["domains"] }),
   });
 
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
   const verifyMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/domains/${id}/verify`),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["domains"] }),
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/domains/${id}/verify`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) {
+        const hint = body?.details?.hint || body?.error || "Verification failed";
+        throw new Error(hint);
+      }
+      return body;
+    },
+    onSuccess: () => {
+      setVerifyError(null);
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
+    },
+    onError: (err: Error) => setVerifyError(err.message),
   });
 
   const domains = data?.data ?? [];
@@ -92,6 +105,19 @@ function DomainsPage() {
           Add Domain
         </button>
       </div>
+
+      {/* Verify error banner */}
+      {verifyError && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1 text-sm text-amber-800 dark:text-amber-300">
+            {verifyError}
+          </div>
+          <button onClick={() => setVerifyError(null)}>
+            <X className="h-4 w-4 text-amber-600 hover:text-amber-800 dark:text-amber-400" />
+          </button>
+        </div>
+      )}
 
       {/* Create modal */}
       {showCreate && (
