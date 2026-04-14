@@ -15,7 +15,9 @@ import aliasesRouter from "./routes/aliases";
 import groupsRouter from "./routes/groups";
 import messagesRouter from "./routes/messages";
 import sendRouter from "./routes/send";
+import tokensRouter from "./routes/tokens";
 import webhooksRouter from "./routes/webhooks";
+import cloudflareRouter from "./routes/cloudflare";
 
 // ─── Hono App ───────────────────────────────────────────────────────────────
 
@@ -63,7 +65,9 @@ app.route("/api/aliases", aliasesRouter);
 app.route("/api/groups", groupsRouter);
 app.route("/api/messages", messagesRouter);
 app.route("/api/send", sendRouter);
+app.route("/api/tokens", tokensRouter);
 app.route("/api/webhooks", webhooksRouter);
+app.route("/api/cloudflare", cloudflareRouter);
 
 // ─── Worker Export ──────────────────────────────────────────────────────────
 

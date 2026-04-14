@@ -17,6 +17,11 @@ export interface Env {
   RESEND_WEBHOOK_SECRET: string;
   ADMIN_EMAIL: string; // Used during setup to validate admin initialization
 
+  // Cloudflare API integration (optional — feature disabled when absent)
+  CLOUDFLARE_API_TOKEN?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CF_WORKER_NAME?: string; // defaults to "edgemail"
+
   // Non-secret vars (set in wrangler.jsonc)
   APP_NAME: string;
 }
@@ -28,4 +33,7 @@ export interface AppVariables {
   db: DrizzleD1Database<typeof schema>;
   userId: string | null;
   sessionId: string | null;
+  apiTokenId: string | null;
+  apiTokenPermissions: string[] | null;
+  apiTokenDomainId: string | null;
 }

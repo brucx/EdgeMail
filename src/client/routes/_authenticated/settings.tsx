@@ -1,62 +1,53 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Settings as SettingsIcon, Shield, Key, Database, Globe } from "lucide-react";
+import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
+import { Globe, Key, Shield, Database, Mail, Cloud } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/settings")({
-  component: SettingsPage,
+  component: SettingsLayout,
 });
 
-function SettingsPage() {
+const tabs = [
+  { to: "/settings/domains", label: "Domains", icon: Globe },
+  { to: "/settings/api-tokens", label: "API Tokens", icon: Key },
+  { to: "/settings/profile", label: "Profile", icon: Shield },
+  { to: "/settings/resend", label: "Resend", icon: Mail },
+  { to: "/settings/cloudflare", label: "Cloudflare", icon: Cloud },
+  { to: "/settings/storage", label: "Storage", icon: Database },
+] as const;
+
+function SettingsLayout() {
+  const location = useLocation();
+
   return (
-    <div className="animate-fade-in p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <SettingsIcon className="h-6 w-6 text-[hsl(var(--primary))]" />
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Admin Profile */}
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <Shield className="h-5 w-5 text-[hsl(var(--primary))]" />
-            <h2 className="text-lg font-semibold">Admin Profile</h2>
-          </div>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Manage your admin account details and password.
-          </p>
+    <div className="animate-fade-in flex h-full bg-[hsl(var(--accent))]">
+      {/* Tab navigation */}
+      <nav className="w-56 shrink-0 border-r border-[hsl(var(--outline-variant))]/10 bg-[hsl(var(--accent))] px-4 py-6">
+        <h2 className="mb-4 px-3 font-[family-name:var(--font-headline)] text-xs font-bold uppercase tracking-widest text-[hsl(var(--outline))]">
+          Settings
+        </h2>
+        <div className="space-y-1">
+          {tabs.map((tab) => {
+            const isActive = location.pathname.startsWith(tab.to);
+            return (
+              <Link
+                key={tab.to}
+                to={tab.to}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? "bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-sm font-semibold"
+                    : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:translate-x-0.5"
+                }`}
+              >
+                <tab.icon className="h-[18px] w-[18px] shrink-0" />
+                {tab.label}
+              </Link>
+            );
+          })}
         </div>
+      </nav>
 
-        {/* Resend Configuration */}
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <Key className="h-5 w-5 text-[hsl(var(--primary))]" />
-            <h2 className="text-lg font-semibold">Resend Configuration</h2>
-          </div>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Verify your Resend API key and sending configuration.
-          </p>
-        </div>
-
-        {/* Storage */}
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <Database className="h-5 w-5 text-[hsl(var(--primary))]" />
-            <h2 className="text-lg font-semibold">Storage Usage</h2>
-          </div>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            View D1 and R2 storage consumption.
-          </p>
-        </div>
-
-        {/* Domain Guide */}
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <Globe className="h-5 w-5 text-[hsl(var(--primary))]" />
-            <h2 className="text-lg font-semibold">Domain Setup Guide</h2>
-          </div>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Instructions for configuring MX records and email routing.
-          </p>
-        </div>
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <Outlet />
       </div>
     </div>
   );

@@ -60,6 +60,8 @@ export interface DomainInfo {
   domain: string;
   status: "pending" | "active" | "disabled";
   mxVerified: boolean;
+  cfZoneId: string | null;
+  cfSetupStatus: "dns_created" | "routing_enabled" | "complete" | null;
   createdAt: string;
 }
 
@@ -173,6 +175,34 @@ export interface AttachmentInfo {
   size: number;
 }
 
+// ─── API Tokens ────────────────────────────────────────────────────────────
+
+export const createApiTokenSchema = z.object({
+  name: z.string().min(1).max(100),
+  permissions: z.array(z.enum(["read:messages"])).min(1),
+  domainId: z.string().optional(),
+  expiresAt: z.string().optional(),
+});
+
+export type CreateApiTokenInput = z.infer<typeof createApiTokenSchema>;
+
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  permissions: string[];
+  domainId: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface ApiTokenCreateResponse {
+  token: string;
+  data: ApiTokenInfo;
+  message: string;
+}
+
 // ─── Send ───────────────────────────────────────────────────────────────────
 
 export const sendEmailSchema = z.object({
@@ -186,3 +216,40 @@ export const sendEmailSchema = z.object({
 });
 
 export type SendEmailInput = z.infer<typeof sendEmailSchema>;
+
+// ─── Cloudflare Integration ────────────────────────────────────────────────
+
+export interface CloudflareStatusResponse {
+  connected: boolean;
+  error?: string;
+}
+
+export interface CloudflareZone {
+  id: string;
+  name: string;
+  status: string;
+  existingDomainId: string | null;
+  linked: boolean;
+}
+
+export type SetupStepStatus = "success" | "skipped" | "error";
+
+export interface CloudflareSetupResult {
+  domainId: string;
+  steps: {
+    dns_mx: SetupStepStatus;
+    dns_spf: SetupStepStatus;
+    routing_enable: SetupStepStatus;
+    routing_catchall: SetupStepStatus;
+  };
+  error?: string;
+}
+
+export const cfSetupSchema = z.object({
+  domainName: z.string().min(1),
+  existingDomainId: z.string().optional(),
+  resumeFrom: z
+    .enum(["dns_created", "routing_enabled"])
+    .optional(),
+  forceOverwrite: z.boolean().optional(),
+});

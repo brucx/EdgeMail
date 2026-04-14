@@ -142,6 +142,21 @@ const MIGRATION_STATEMENTS = [
     FOREIGN KEY (\`message_id\`) REFERENCES \`messages\`(\`id\`) ON UPDATE no action ON DELETE cascade
   )`,
 
+  // API tokens
+  `CREATE TABLE IF NOT EXISTS \`api_tokens\` (
+    \`id\` text PRIMARY KEY NOT NULL,
+    \`name\` text NOT NULL,
+    \`token_hash\` text NOT NULL,
+    \`prefix\` text NOT NULL,
+    \`permissions\` text NOT NULL,
+    \`domain_id\` text,
+    \`last_used_at\` text,
+    \`expires_at\` text,
+    \`created_at\` text DEFAULT (datetime('now')) NOT NULL,
+    \`updated_at\` text DEFAULT (datetime('now')) NOT NULL,
+    FOREIGN KEY (\`domain_id\`) REFERENCES \`domains\`(\`id\`) ON UPDATE no action ON DELETE cascade
+  )`,
+
   // Audit logs
   `CREATE TABLE IF NOT EXISTS \`audit_logs\` (
     \`id\` text PRIMARY KEY NOT NULL,
@@ -156,11 +171,27 @@ const MIGRATION_STATEMENTS = [
 ];
 
 /**
- * Run all CREATE TABLE IF NOT EXISTS statements.
- * Safe to call on every cold start — no-ops for existing tables.
+ * ALTER TABLE additions — wrapped in try/catch for idempotency.
+ * SQLite errors on duplicate column names, so we silently ignore.
+ */
+const ALTER_STATEMENTS = [
+  `ALTER TABLE \`domains\` ADD COLUMN \`cf_zone_id\` text`,
+  `ALTER TABLE \`domains\` ADD COLUMN \`cf_setup_status\` text`,
+];
+
+/**
+ * Run all CREATE TABLE IF NOT EXISTS statements, then apply ALTER TABLE additions.
+ * Safe to call on every cold start — no-ops for existing tables/columns.
  */
 export async function ensureTablesExist(db: D1Database): Promise<void> {
   for (const sql of MIGRATION_STATEMENTS) {
     await db.prepare(sql).run();
+  }
+  for (const sql of ALTER_STATEMENTS) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // Column already exists — ignore
+    }
   }
 }

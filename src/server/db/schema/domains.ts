@@ -12,6 +12,10 @@ export const domains = sqliteTable("domains", {
   mxVerified: integer("mx_verified", { mode: "boolean" })
     .notNull()
     .default(false),
+  cfZoneId: text("cf_zone_id"),
+  cfSetupStatus: text("cf_setup_status", {
+    enum: ["dns_created", "routing_enabled", "complete"],
+  }),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

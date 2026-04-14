@@ -181,6 +181,9 @@ EdgeMail/
 | `ADMIN_EMAIL` | Primary admin email for setup and notifications | Yes |
 | `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret | For webhooks |
 | `APP_NAME` | Display name used by the health endpoint | No |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for domain auto-setup | No |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for zone filtering | No |
+| `CF_WORKER_NAME` | Worker name for catch-all rule (default: `edgemail`) | No |
 
 Set secret values via `npx wrangler secret put <NAME>` for production, or in `.dev.vars` for local dev.
 Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and `ADMIN_EMAIL`.
@@ -202,6 +205,10 @@ Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and
 | `GET/PATCH` | `/api/messages/*` | Message list & detail |
 | `POST` | `/api/send` | Send email via Resend |
 | `POST` | `/api/webhooks/resend` | Resend delivery webhook |
+| `GET` | `/api/cloudflare/status` | Check Cloudflare API connection |
+| `GET` | `/api/cloudflare/zones` | List Cloudflare zones with EdgeMail mapping |
+| `GET` | `/api/cloudflare/zones/:zoneId/dns` | Check existing DNS records |
+| `POST` | `/api/cloudflare/zones/:zoneId/setup` | One-click domain email setup |
 
 ## Database Schema
 
