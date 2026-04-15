@@ -38,10 +38,18 @@ export const Route = createFileRoute("/")({
       throw redirect({ to: "/onboarding" });
     }
 
-    // 4. Redirect to first domain's inbox
+    // 4. Redirect to last active domain, or first domain fallback
+    let targetDomainId = domains[0]?.id;
+    try {
+      const lastId = localStorage.getItem("edge_mail_last_domain_id");
+      if (lastId && domains.some((d) => d.id === lastId)) {
+        targetDomainId = lastId;
+      }
+    } catch {}
+
     throw redirect({
       to: "/d/$domainId/inbox",
-      params: { domainId: domains[0].id },
+      params: { domainId: targetDomainId },
     });
   },
 });

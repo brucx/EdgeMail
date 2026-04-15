@@ -23,7 +23,7 @@ import {
   PenSquare,
   ChevronDown,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import type { DomainInfo } from "@shared/types";
 
@@ -52,7 +52,7 @@ function AuthenticatedLayout() {
 
   // Get current domainId from URL if on a domain-scoped route
   const params = useParams({ strict: false }) as { domainId?: string };
-  const currentDomainId = params.domainId;
+  const urlDomainId = params.domainId;
 
   // Fetch domains for the switcher
   const { data: domainsData } = useQuery({
@@ -60,6 +60,28 @@ function AuthenticatedLayout() {
     queryFn: () => api.get<{ data: DomainInfo[] }>("/domains"),
   });
   const domains = domainsData?.data ?? [];
+
+  // Track last domain ID so it doesn't clear when navigating to Settings
+  const [lastDomainId, setLastDomainId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("edge_mail_last_domain_id");
+    } catch {
+      return null;
+    }
+  });
+
+  // Update last domain id when url domain id changes to a valid one
+  useEffect(() => {
+    if (urlDomainId && urlDomainId !== lastDomainId) {
+      setLastDomainId(urlDomainId);
+      try {
+        localStorage.setItem("edge_mail_last_domain_id", urlDomainId);
+      } catch {}
+    }
+  }, [urlDomainId, lastDomainId]);
+
+  const activeDomainId = urlDomainId || lastDomainId;
+  const currentDomainId = domains.some((d) => d.id === activeDomainId) ? activeDomainId : undefined;
   const currentDomain = domains.find((d) => d.id === currentDomainId);
 
   const handleSignOut = async () => {

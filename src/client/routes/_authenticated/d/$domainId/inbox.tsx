@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Inbox as InboxIcon, Search, Mail, MailOpen, Paperclip, RefreshCw } from "lucide-react";
+import { Inbox as InboxIcon, Search, Mail, MailOpen, Paperclip } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import type { MessageSummary, MailboxInfo } from "@shared/types";
@@ -36,6 +36,7 @@ function InboxPage() {
       );
     },
     enabled: !!activeMailboxId,
+    refetchInterval: 15_000,
   });
 
   const markReadMutation = useMutation({
@@ -76,13 +77,6 @@ function InboxPage() {
               className="h-9 w-48 rounded-full border-none bg-[hsl(var(--card))] pl-9 pr-3 text-sm placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20"
             />
           </div>
-          <button
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["messages"] })}
-            className="h-9 rounded-full bg-[hsl(var(--card))] px-4 text-xs font-semibold flex items-center gap-2 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--input))] transition-colors"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Sync
-          </button>
         </div>
       </div>
 
