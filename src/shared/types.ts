@@ -255,3 +255,28 @@ export const cfSetupSchema = z.object({
     .optional(),
   forceOverwrite: z.boolean().optional(),
 });
+
+// ─── Storage Analytics ────────────────────────────────────────────────────
+
+export interface StorageStats {
+  configured: boolean;
+  error?: string;
+  d1: {
+    databases: Array<{
+      databaseId: string;
+      databaseSizeBytes: number;
+    }>;
+    totalSizeBytes: number;
+    rowsRead: number;
+    rowsWritten: number;
+  } | null;
+  r2: {
+    buckets: Array<{
+      bucketName: string;
+      storageBytes: number;
+      objectCount: number;
+    }>;
+    totalSizeBytes: number;
+    totalObjects: number;
+  } | null;
+}

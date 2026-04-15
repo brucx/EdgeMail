@@ -128,13 +128,16 @@ npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
 
 Create an API Token at [Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Custom Token** with these permissions:
 
-| Permission | Access |
-|------------|--------|
-| Zone → Zone | Read |
-| Zone → DNS | Edit |
-| Zone → Email Routing Rules | Edit |
+| Permission | Access | Used for |
+|------------|--------|----------|
+| Zone → Zone | Read | Domain import |
+| Zone → DNS | Edit | Domain import |
+| Zone → Email Routing Rules | Edit | Domain import |
+| Account → Account Analytics | Read | Storage analytics (D1 & R2 usage) |
 
 Then open EdgeMail → **Settings → Cloudflare** to verify the connection, and use **Import from Cloudflare** on the Domains page to auto-configure DNS records and Email Routing in one click.
+
+> **Storage Analytics**: The **Account Analytics: Read** permission is required to view D1 and R2 storage metrics on the **Settings → Storage** page. Without it, the storage dashboard will show a permission error with setup instructions. The analytics data is queried via Cloudflare's [GraphQL Analytics API](https://developers.cloudflare.com/analytics/graphql-api/) using the `d1StorageAdaptiveGroups`, `d1AnalyticsAdaptiveGroups`, and `r2StorageAdaptiveGroups` datasets.
 
 **Option B: Manual** — configure in the Cloudflare Dashboard yourself:
 
@@ -203,8 +206,8 @@ EdgeMail/
 | `ADMIN_EMAIL` | Primary admin email for setup and notifications | Yes |
 | `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret | For webhooks |
 | `APP_NAME` | Display name used by the health endpoint | No |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for domain auto-setup | No |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for zone filtering | No |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for domain auto-setup and storage analytics | No |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for zone filtering and storage analytics | No |
 | `CF_WORKER_NAME` | Worker name for catch-all rule (default: `edgemail`) | No |
 
 Set secret values via `npx wrangler secret put <NAME>` for production, or in `.dev.vars` for local dev.
@@ -232,6 +235,7 @@ Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and
 | `GET` | `/api/cloudflare/zones` | List Cloudflare zones with EdgeMail mapping |
 | `GET` | `/api/cloudflare/zones/:zoneId/dns` | Check existing DNS records |
 | `POST` | `/api/cloudflare/zones/:zoneId/setup` | One-click domain email setup |
+| `GET` | `/api/storage/stats` | D1 & R2 storage usage analytics |
 
 ## Database Schema
 

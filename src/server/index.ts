@@ -18,6 +18,7 @@ import sendRouter from "./routes/send";
 import tokensRouter from "./routes/tokens";
 import webhooksRouter from "./routes/webhooks";
 import cloudflareRouter from "./routes/cloudflare";
+import storageRouter from "./routes/storage";
 
 // ─── Hono App ───────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ app.route("/api/send", sendRouter);
 app.route("/api/tokens", tokensRouter);
 app.route("/api/webhooks", webhooksRouter);
 app.route("/api/cloudflare", cloudflareRouter);
+app.route("/api/storage", storageRouter);
 
 // ─── Worker Export ──────────────────────────────────────────────────────────
 
