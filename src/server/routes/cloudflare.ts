@@ -420,12 +420,16 @@ cloudflareRouter.post(
         data: { domainId, steps } satisfies CloudflareSetupResult,
         message: "Domain configured successfully",
       });
-    } catch {
-      // Partial failure — return what we have
+    } catch (err) {
+      // Partial failure — log and return what we have
+      const message =
+        lastError ||
+        (err instanceof Error ? err.message : "Setup failed");
+      console.error("[EdgeMail] Cloudflare setup error:", message, err);
       return c.json(
         {
           data: { domainId, steps } satisfies CloudflareSetupResult,
-          error: lastError || "Setup failed",
+          error: message,
         },
         500,
       );
