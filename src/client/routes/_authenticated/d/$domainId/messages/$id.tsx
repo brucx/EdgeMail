@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Paperclip, Clock, Download, User } from "lucide-react";
+import { ArrowLeft, Paperclip, Clock, ExternalLink, User } from "lucide-react";
 import { api } from "@/lib/api";
 import type { MessageDetail } from "@shared/types";
 
@@ -125,10 +125,11 @@ function MessageDetailPage() {
                     <a
                       key={att.id}
                       href={`/api/messages/${id}/attachments/${att.id}`}
-                      download={att.filename}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="flex items-center gap-3 rounded-xl bg-[hsl(var(--accent))] p-3 transition-colors hover:bg-[hsl(var(--input))]"
                     >
-                      <Download className="h-4 w-4 text-[hsl(var(--primary))]" />
+                      <ExternalLink className="h-4 w-4 text-[hsl(var(--primary))]" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{att.filename}</p>
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">

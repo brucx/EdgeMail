@@ -237,7 +237,7 @@ messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
   return new Response(object.body, {
     headers: {
       "Content-Type": attachment.mimeType,
-      "Content-Disposition": `attachment; filename="${attachment.filename}"`,
+      "Content-Disposition": `inline; filename="${attachment.filename}"`,
       "Content-Length": attachment.size.toString(),
     },
   });
