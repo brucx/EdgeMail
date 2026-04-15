@@ -9,6 +9,8 @@ import {
   AlertCircle,
   Globe,
   ArrowLeft,
+  Info,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type {
@@ -43,11 +45,18 @@ export function CloudflareImportModal({
   const [setupError, setSetupError] = useState("");
   const [conflictWarning, setConflictWarning] = useState<string[] | null>(null);
 
-  const { data: zonesData, isLoading: zonesLoading } = useQuery({
+  const {
+    data: zonesData,
+    isLoading: zonesLoading,
+    isError: zonesError,
+    refetch: refetchZones,
+    isRefetching: isRefetchingZones,
+  } = useQuery({
     queryKey: ["cloudflare", "zones"],
     queryFn: () =>
       api.get<{ data: CloudflareZone[] }>("/cloudflare/zones"),
     enabled: open,
+    retry: false,
   });
 
   const setupMutation = useMutation({
@@ -187,7 +196,60 @@ export function CloudflareImportModal({
               </div>
             )}
 
-            {!zonesLoading && (!zonesData?.data || zonesData.data.length === 0) && (
+            {!zonesLoading && zonesError && (
+              <div className="rounded-2xl bg-[hsl(var(--card))] p-6 shadow-sm border border-[hsl(var(--outline-variant))]/50">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">
+                    <Cloud className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-amber-900 dark:text-amber-100">Not Connected</h3>
+                        <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-300">
+                          EdgeMail needs API access to configure your domains.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => refetchZones()}
+                        disabled={isRefetchingZones}
+                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-[hsl(var(--accent))] px-3 text-sm font-medium transition-colors hover:bg-[hsl(var(--input))] disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${isRefetchingZones ? "animate-spin" : ""}`} />
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="mt-5 space-y-3">
+                      <p className="text-sm font-medium text-[hsl(var(--foreground))]">
+                        Run these commands in your project directory:
+                      </p>
+                      <div className="space-y-2">
+                        <div className="rounded-lg bg-[hsl(var(--accent))] px-4 py-2.5">
+                          <code className="font-[family-name:var(--font-mono)] text-xs">
+                            npx wrangler secret put CLOUDFLARE_API_TOKEN
+                          </code>
+                        </div>
+                        <div className="rounded-lg bg-[hsl(var(--accent))] px-4 py-2.5">
+                          <code className="font-[family-name:var(--font-mono)] text-xs">
+                            npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
+                          </code>
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded-xl bg-blue-50/50 p-4 dark:bg-blue-950/20">
+                        <div className="flex items-start gap-3">
+                          <Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
+                          <p className="text-xs leading-relaxed text-blue-800 dark:text-blue-300">
+                            Create an API Token at <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="font-semibold underline hover:text-blue-600 dark:hover:text-blue-200">Cloudflare Dashboard &rarr; My Profile &rarr; API Tokens</a> with <strong>Zone Read</strong>, <strong>DNS Edit</strong>, and <strong>Email Routing Edit</strong> permissions.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!zonesLoading && !zonesError && (!zonesData?.data || zonesData.data.length === 0) && (
               <div className="flex flex-col items-center justify-center py-12">
                 <Globe className="mb-3 h-10 w-10 text-[hsl(var(--outline))]" />
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">
