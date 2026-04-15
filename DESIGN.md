@@ -85,16 +85,22 @@ Overlay: `bg-black/40 backdrop-blur-sm`.
 
 ### Sidebar Navigation
 
-- Background: `--accent` (`#f2f4f6`), no right border
-- Active item: `bg-[--card]` (white) + `shadow-sm` + `text-[--primary]` + `font-semibold`
-- Inactive: `text-[--muted-foreground]`, hover translate-x micro-animation
+- **Primary Nav** Background: `--accent` (`#f2f4f6`), no right border. Active item uses `bg-[--card]` (white) + `shadow-sm` + `text-[--primary]`.
+- **Sub-nav / Internal Panels**: Use flush layouts with subtle highlights (`bg-[--primary]/[0.08] text-[--primary]`) for the active item. Avoid making the active sub-nav item a white card if it's placed next to a white main area, preventing a visually disjointed layout.
+- Inactive: `text-[--muted-foreground]`, micro-interaction via `hover:translate-x-0.5` or `hover:bg-[--accent]`.
+
+### Top Headers & Search
+
+- **Flowing Backgrounds**: Top headers should inherit the page's base canvas background (`bg-[--accent]`), rather than drawing a stark white strip across the top.
+- **Floating Controls**: Elevate search inputs within the header as floating pills (`bg-[--card] shadow-sm rounded-xl`) so they pop cleanly against the grey canvas.
 
 ## Layout Rules
 
 1. **Tonal canvas**: Page content areas use `bg-[--accent]`. Content cards use `bg-[--card]`.
-2. **Breathing room**: Generous `px-8 py-6` page padding. `space-y-3` between cards.
-3. **No hard borders**: Use `bg-[--outline-variant]/15` thin dividers only when semantically necessary (e.g., message header/body separation).
-4. **Shadows**: Only on floating elements (modals, dropdown menus). Use `shadow-ambient` utility class.
+2. **Unified Cards (Multi-column)**: When creating side-by-side structures (e.g., mailboxes list + message list), wrap both within a *single* `bg-[--card] rounded-2xl shadow-sm border border-[--border]/60` container. Separate internal sections with a soft `border-r border-[--border]/60`. Avoid placing adjacent white cards with empty gaps.
+3. **Breathing room**: Generous `px-8 py-6` page padding. `space-y-3` between standalone cards.
+4. **Minimal borders**: Only use borders (`border-[--border]/60`) for essential subtle compartmentalization. Rely on tonal contrast instead of sharp outlines.
+5. **Shadows**: Use sparingly. `shadow-sm` for unified cards/search pills; `shadow-ambient` only for modals/dropdowns.
 
 ## Do / Don't
 
