@@ -26,6 +26,7 @@ import {
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import type { DomainInfo } from "@shared/types";
+import { ComposeModal } from "@/components/ComposeModal";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async ({ context, location }) => {
@@ -49,6 +50,7 @@ function AuthenticatedLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   // Get current domainId from URL if on a domain-scoped route
   const params = useParams({ strict: false }) as { domainId?: string };
@@ -174,7 +176,10 @@ function AuthenticatedLayout() {
 
         {/* Compose button */}
         <div className="px-3 pb-4">
-          <button className="flex w-full items-center justify-center gap-3 rounded-xl gradient-primary py-3.5 px-6 text-sm font-semibold text-white shadow-lg shadow-[hsl(var(--primary))]/10 transition-all active:scale-[0.98] hover:shadow-xl">
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="flex w-full items-center justify-center gap-3 rounded-xl gradient-primary py-3.5 px-6 text-sm font-semibold text-white shadow-lg shadow-[hsl(var(--primary))]/10 transition-all active:scale-[0.98] hover:shadow-xl"
+          >
             <PenSquare className="h-[18px] w-[18px]" />
             <span>Compose</span>
           </button>
@@ -295,6 +300,13 @@ function AuthenticatedLayout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Compose Modal */}
+      <ComposeModal
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        domainId={currentDomainId ?? undefined}
+      />
     </div>
   );
 }
