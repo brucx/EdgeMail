@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   X,
@@ -36,6 +36,8 @@ const SETUP_STEPS: SetupStep[] = [
   { key: "routing_catchall", label: "Configure catch-all rule" },
 ];
 
+type ViewMode = "loading" | "error" | "empty" | "list";
+
 export function CloudflareImportModal({
   open,
   onClose,
@@ -47,17 +49,35 @@ export function CloudflareImportModal({
 
   const {
     data: zonesData,
-    isLoading: zonesLoading,
     isError: zonesError,
     refetch: refetchZones,
-    isRefetching: isRefetchingZones,
+    isFetching: isFetchingZones,
+    fetchStatus,
   } = useQuery({
     queryKey: ["cloudflare", "zones"],
     queryFn: () =>
       api.get<{ data: CloudflareZone[] }>("/cloudflare/zones"),
     enabled: open,
     retry: false,
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: false,
   });
+
+  // Stable view: only update when fetch settles, never during a fetch.
+  // This prevents flicker when React Query resets status to 'pending' during refetch.
+  const viewRef = useRef<ViewMode>("loading");
+  if (!isFetchingZones && fetchStatus === "idle") {
+    if (zonesError) viewRef.current = "error";
+    else if (!zonesData?.data?.length) viewRef.current = "empty";
+    else viewRef.current = "list";
+  }
+  const currentView = viewRef.current;
+  const isRefreshingInBackground = isFetchingZones && currentView !== "loading";
+
+  const isInitialLoading = currentView === "loading";
+  const showNotConnected = currentView === "error";
+  const showNoDomains = currentView === "empty";
+  const showList = currentView === "list";
 
   const setupMutation = useMutation({
     mutationFn: (params: {
@@ -190,13 +210,13 @@ export function CloudflareImportModal({
         {/* Zone List View */}
         {!selectedZone && (
           <div>
-            {zonesLoading && (
+            {isInitialLoading && (
               <div className="flex justify-center py-12">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
               </div>
             )}
 
-            {!zonesLoading && zonesError && (
+            {showNotConnected && (
               <div className="rounded-2xl bg-[hsl(var(--accent))] p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -209,10 +229,10 @@ export function CloudflareImportModal({
                   </div>
                   <button
                     onClick={() => refetchZones()}
-                    disabled={isRefetchingZones}
+                    disabled={isRefreshingInBackground}
                     className="inline-flex h-9 items-center gap-2 rounded-lg bg-[hsl(var(--card))] px-3 text-sm font-medium shadow-sm transition-colors hover:bg-[hsl(var(--input))] disabled:opacity-50"
                   >
-                    <RefreshCw className={`h-4 w-4 ${isRefetchingZones ? "animate-spin" : ""}`} />
+                    <RefreshCw className={`h-4 w-4 ${isRefreshingInBackground ? "animate-spin" : ""}`} />
                     Refresh
                   </button>
                 </div>
@@ -242,7 +262,7 @@ export function CloudflareImportModal({
               </div>
             )}
 
-            {!zonesLoading && !zonesError && (!zonesData?.data || zonesData.data.length === 0) && (
+            {showNoDomains && (
               <div className="flex flex-col items-center justify-center py-12">
                 <Globe className="mb-3 h-10 w-10 text-[hsl(var(--outline))]" />
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">
@@ -251,7 +271,7 @@ export function CloudflareImportModal({
               </div>
             )}
 
-            {!zonesLoading && zonesData?.data && zonesData.data.length > 0 && (
+            {showList && (
               <div className="max-h-80 space-y-2 overflow-y-auto custom-scrollbar">
                 {zonesData.data.map((zone) => (
                   <div
