@@ -95,18 +95,44 @@ cloudflareRouter.get("/zones", async (c) => {
       existingDomains.map((d) => [d.domain, d]),
     );
 
-    const data = zones.map((zone) => {
-      const existing = domainMap.get(zone.name);
-      return {
-        id: zone.id,
-        name: zone.name,
-        status: zone.status,
-        existingDomainId: existing?.id ?? null,
-        linked: existing?.cfZoneId === zone.id,
-      };
-    });
+    // Query MX records for each zone in parallel to detect existing MX configs
+    const zoneDataWithMx = await Promise.all(
+      zones.map(async (zone) => {
+        const existing = domainMap.get(zone.name);
+        const base = {
+          id: zone.id,
+          name: zone.name,
+          status: zone.status,
+          existingDomainId: existing?.id ?? null,
+          linked: existing?.cfZoneId === zone.id,
+          existingMxRecords: [] as string[],
+        };
 
-    return c.json({ data });
+        // Skip MX check for already-linked domains
+        if (base.linked) return base;
+
+        try {
+          const mxResult = await cfFetch(
+            token,
+            `/zones/${zone.id}/dns_records?type=MX`,
+          );
+          const mxRecords = mxResult.result as Array<{
+            content: string;
+            priority: number;
+          }>;
+          // Flag non-Cloudflare MX records
+          base.existingMxRecords = mxRecords
+            .filter((r) => !r.content.includes("mx.cloudflare.net"))
+            .map((r) => `${r.priority} ${r.content}`);
+        } catch {
+          // Non-critical — just skip MX check
+        }
+
+        return base;
+      }),
+    );
+
+    return c.json({ data: zoneDataWithMx });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[EdgeMail] Cloudflare zones error:", message);

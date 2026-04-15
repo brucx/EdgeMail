@@ -230,6 +230,8 @@ export interface CloudflareZone {
   status: string;
   existingDomainId: string | null;
   linked: boolean;
+  /** Non-Cloudflare MX records already present (e.g. "10 mail.google.com") */
+  existingMxRecords: string[];
 }
 
 export type SetupStepStatus = "success" | "skipped" | "error";
