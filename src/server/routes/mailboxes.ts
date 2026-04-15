@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { eq, and, count, sql } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
-import { mailboxes, domains, auditLogs } from "../db/schema";
+import { mailboxes, domains, auditLogs, messageDeliveries } from "../db/schema";
 import { generateId } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
 import { createMailboxSchema, updateMailboxSchema } from "@shared/types";
@@ -26,6 +26,41 @@ mailboxesRouter.get("/", async (c) => {
   }
 
   const result = await query;
+  return c.json({ data: result });
+});
+
+/**
+ * GET /api/mailboxes/unread-counts
+ * Get unread message count per mailbox for a domain.
+ * Query params: domainId (required)
+ */
+mailboxesRouter.get("/unread-counts", async (c) => {
+  const db = c.get("db");
+  const domainId = c.req.query("domainId");
+
+  if (!domainId) {
+    return c.json({ error: "domainId is required" }, 400);
+  }
+
+  const result = await db
+    .select({
+      mailboxId: mailboxes.id,
+      address: mailboxes.address,
+      unreadCount: count(messageDeliveries.id),
+    })
+    .from(mailboxes)
+    .leftJoin(
+      messageDeliveries,
+      and(
+        eq(messageDeliveries.mailboxId, mailboxes.id),
+        eq(messageDeliveries.folder, "inbox"),
+        eq(messageDeliveries.isRead, false),
+      ),
+    )
+    .where(eq(mailboxes.domainId, domainId))
+    .groupBy(mailboxes.id)
+    .orderBy(mailboxes.createdAt);
+
   return c.json({ data: result });
 });
 

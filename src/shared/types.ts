@@ -149,6 +149,14 @@ export interface GroupInfo {
   createdAt: string;
 }
 
+// ─── Mailbox Unread Counts ──────────────────────────────────────────────────
+
+export interface MailboxUnreadCount {
+  mailboxId: string;
+  address: string;
+  unreadCount: number;
+}
+
 // ─── Messages ───────────────────────────────────────────────────────────────
 
 export interface MessageSummary {
