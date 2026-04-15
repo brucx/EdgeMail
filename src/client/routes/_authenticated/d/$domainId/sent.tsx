@@ -1,16 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Send as SendIcon, Mail, Paperclip } from "lucide-react";
+import { Send as SendIcon, Mail, Paperclip, Search } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import type { MessageSummary, MailboxInfo } from "@shared/types";
 
 export const Route = createFileRoute("/_authenticated/d/$domainId/sent")({
+  validateSearch: (search: Record<string, unknown>): { q?: string } => {
+    return {
+      q: (search.q as string) || undefined,
+    };
+  },
   component: SentPage,
 });
 
 function SentPage() {
   const { domainId } = Route.useParams();
+  const { q: search } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("");
 
   const { data: mailboxesData } = useQuery({
@@ -22,12 +29,13 @@ function SentPage() {
   const activeMailboxId = selectedMailboxId || mailboxes[0]?.id || "";
 
   const { data: messagesData, isLoading } = useQuery({
-    queryKey: ["messages", "sent", activeMailboxId],
+    queryKey: ["messages", "sent", activeMailboxId, search],
     queryFn: () => {
       const params = new URLSearchParams({
         mailboxId: activeMailboxId,
         folder: "sent",
       });
+      if (search) params.set("search", search);
       return api.get<{ data: MessageSummary[]; total: number }>(
         `/messages?${params}`,
       );
@@ -41,24 +49,44 @@ function SentPage() {
     <div className="animate-fade-in flex h-full flex-col bg-[hsl(var(--accent))]">
       {/* Page header */}
       <div className="px-8 py-6 flex items-center justify-end">
-        {/* Mobile: mailbox selector as pill tabs */}
-        {mailboxes.length > 1 && (
-          <div className="flex items-center gap-1 lg:hidden overflow-x-auto">
-            {mailboxes.map((mb) => (
-              <button
-                key={mb.id}
-                onClick={() => setSelectedMailboxId(mb.id)}
-                className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  activeMailboxId === mb.id
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                    : "bg-[hsl(var(--card))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--card))]/80"
-                }`}
-              >
-                <span className="truncate max-w-[120px]">{mb.address.split("@")[0]}</span>
-              </button>
-            ))}
+        <div className="flex items-center gap-2">
+          {/* Mobile: mailbox selector as pill tabs */}
+          {mailboxes.length > 1 && (
+            <div className="flex items-center gap-1 lg:hidden overflow-x-auto">
+              {mailboxes.map((mb) => (
+                <button
+                  key={mb.id}
+                  onClick={() => setSelectedMailboxId(mb.id)}
+                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    activeMailboxId === mb.id
+                      ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                      : "bg-[hsl(var(--card))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--card))]/80"
+                  }`}
+                >
+                  <span className="truncate max-w-[120px]">{mb.address.split("@")[0]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="relative lg:hidden">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--outline))]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    q: e.target.value || undefined,
+                  }),
+                  replace: true,
+                })
+              }
+              placeholder="Search..."
+              className="h-9 w-48 rounded-full border-none bg-[hsl(var(--card))] pl-9 pr-3 text-sm placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20"
+            />
           </div>
-        )}
+        </div>
       </div>
 
       {/* Main content: mailbox panel + message list */}
@@ -113,7 +141,7 @@ function SentPage() {
               <SendIcon className="mb-4 h-12 w-12 text-[hsl(var(--outline))]" />
               <h2 className="font-[family-name:var(--font-headline)] text-lg font-semibold">No sent messages</h2>
               <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-                Messages you send will appear here.
+                {search ? "No messages match your search." : "Messages you send will appear here."}
               </p>
             </div>
           )}

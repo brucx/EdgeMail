@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, desc, like, sql, count } from "drizzle-orm";
+import { eq, and, desc, like, sql, count, or } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   messages,
@@ -21,7 +21,7 @@ messagesRouter.use("/*", requireAuth);
 messagesRouter.get("/", async (c) => {
   const db = c.get("db");
   const mailboxId = c.req.query("mailboxId");
-  const folder = c.req.query("folder") || "inbox";
+  const folder = (c.req.query("folder") || "inbox") as "inbox" | "sent";
   const page = parseInt(c.req.query("page") || "1", 10);
   const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 100);
   const search = c.req.query("search");
@@ -38,8 +38,20 @@ messagesRouter.get("/", async (c) => {
     eq(messageDeliveries.folder, folder),
   ];
 
+  // Apply search filter at the SQL level for accurate results across all pages
+  if (search) {
+    const pattern = `%${search}%`;
+    conditions.push(
+      or(
+        like(messages.subject, pattern),
+        like(messages.fromAddress, pattern),
+        like(messages.fromName, pattern),
+      )!,
+    );
+  }
+
   // Base query: messages joined with deliveries
-  let baseQuery = db
+  const baseQuery = db
     .select({
       id: messages.id,
       fromAddress: messages.fromAddress,
@@ -79,26 +91,15 @@ messagesRouter.get("/", async (c) => {
     }),
   );
 
-  // Optional search filter (done post-query for simplicity with D1)
-  let filtered = result;
-  if (search) {
-    const s = search.toLowerCase();
-    filtered = result.filter(
-      (msg) =>
-        msg.subject?.toLowerCase().includes(s) ||
-        msg.fromAddress.toLowerCase().includes(s) ||
-        msg.fromName?.toLowerCase().includes(s),
-    );
-  }
-
-  // Get total count
+  // Get total count (shares the same conditions including search)
   const totalResult = await db
     .select({ value: count() })
     .from(messageDeliveries)
+    .innerJoin(messages, eq(messageDeliveries.messageId, messages.id))
     .where(and(...conditions));
   const total = totalResult[0]?.value ?? 0;
 
-  return c.json({ data: filtered, total, page, limit });
+  return c.json({ data: result, total, page, limit });
 });
 
 /**

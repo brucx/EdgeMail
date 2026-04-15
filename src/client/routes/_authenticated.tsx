@@ -5,6 +5,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
+  useSearch,
   redirect,
 } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -62,6 +63,22 @@ function AuthenticatedLayout() {
     queryFn: () => api.get<{ data: DomainInfo[] }>("/domains"),
   });
   const domains = domainsData?.data ?? [];
+
+  const searchParams = useSearch({ strict: false }) as { q?: string };
+  const searchQuery = searchParams.q || "";
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    navigate({
+      search: (prev: any) => ({
+        ...prev,
+        q: e.target.value || undefined,
+      }),
+      replace: true,
+    });
+  };
+
+  const isSearchablePage =
+    location.pathname.endsWith("/inbox") || location.pathname.endsWith("/sent");
 
   // Track last domain ID so it doesn't clear when navigating to Settings
   const [lastDomainId, setLastDomainId] = useState<string | null>(() => {
@@ -284,14 +301,18 @@ function AuthenticatedLayout() {
           </span>
 
           {/* Search (desktop) */}
-          <div className="relative hidden max-w-md flex-1 lg:block">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--outline))]" />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="h-10 w-full rounded-xl border-none bg-[hsl(var(--card))] shadow-sm pl-10 pr-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 transition-all"
-            />
-          </div>
+          {isSearchablePage && (
+            <div className="relative hidden max-w-md flex-1 lg:block">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--outline))]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Search messages..."
+                className="h-10 w-full rounded-xl border-none bg-[hsl(var(--card))] shadow-sm pl-10 pr-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 transition-all"
+              />
+            </div>
+          )}
           <div className="ml-auto" />
         </header>
 

@@ -6,14 +6,20 @@ import { api } from "@/lib/api";
 import type { MessageSummary, MailboxInfo, MailboxUnreadCount } from "@shared/types";
 
 export const Route = createFileRoute("/_authenticated/d/$domainId/inbox")({
+  validateSearch: (search: Record<string, unknown>): { q?: string } => {
+    return {
+      q: (search.q as string) || undefined,
+    };
+  },
   component: InboxPage,
 });
 
 function InboxPage() {
   const { domainId } = Route.useParams();
+  const { q: search } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("");
-  const [search, setSearch] = useState("");
 
   const { data: mailboxesData } = useQuery({
     queryKey: ["mailboxes", { domainId }],
@@ -103,7 +109,15 @@ function InboxPage() {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    q: e.target.value || undefined,
+                  }),
+                  replace: true,
+                })
+              }
               placeholder="Search..."
               className="h-9 w-48 rounded-full border-none bg-[hsl(var(--card))] pl-9 pr-3 text-sm placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20"
             />
