@@ -66,6 +66,26 @@ export function generateSessionToken(): string {
   return bufToHex(bytes);
 }
 
+// ─── API Token Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Generate a new API token: "em_sk_" + 48 random hex chars.
+ */
+export function generateApiToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return `em_sk_${bufToHex(bytes)}`;
+}
+
+/**
+ * SHA-256 hash of a full API token string, returned as hex.
+ */
+export async function hashApiToken(token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token);
+  const hash = await crypto.subtle.digest("SHA-256", data.buffer);
+  return bufToHex(new Uint8Array(hash));
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function bufToHex(buf: Uint8Array): string {

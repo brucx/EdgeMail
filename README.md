@@ -8,11 +8,13 @@
 
 - 📬 **Custom Domain Email** — receive emails on your own domain via Cloudflare Email Routing
 - 📤 **Send Emails** — send from your domain using Resend
+- 🌐 **Multi-Domain** — manage multiple domains from a single instance with domain-scoped views
 - 📮 **Mailboxes** — create and manage mailboxes
 - 🔀 **Aliases** — forward emails to one or more mailboxes
 - 👥 **Groups** — distribute emails to a group of mailboxes
 - 📎 **Attachments** — upload, store, and download attachments via R2
 - 🔐 **Lightweight Auth** — admin login with session-based authentication
+- 🔑 **API Tokens** — programmatic access with scoped permissions and domain restrictions
 - 🖥️ **Web Inbox** — read, search, and manage emails in a modern web UI
 - ☁️ **One-Click Deploy** — deploy to Cloudflare with a single button
 
@@ -224,6 +226,7 @@ Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and
 | `GET/POST/PATCH/DELETE` | `/api/groups/*` | Group management |
 | `GET/PATCH` | `/api/messages/*` | Message list & detail |
 | `POST` | `/api/send` | Send email via Resend |
+| `GET/POST/DELETE` | `/api/tokens/*` | API token management |
 | `POST` | `/api/webhooks/resend` | Resend delivery webhook |
 | `GET` | `/api/cloudflare/status` | Check Cloudflare API connection |
 | `GET` | `/api/cloudflare/zones` | List Cloudflare zones with EdgeMail mapping |
@@ -232,11 +235,12 @@ Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and
 
 ## Database Schema
 
-13 tables across 4 domains:
+14 tables across 5 domains:
 
 - **Auth**: `users`, `sessions`
 - **Addressing**: `domains`, `mailboxes`, `aliases`, `alias_targets`, `groups`, `group_members`
 - **Messages**: `messages`, `message_recipients`, `message_deliveries`, `attachments`
+- **API Access**: `api_tokens`
 - **Audit**: `audit_logs`
 
 ## R2 Storage Convention

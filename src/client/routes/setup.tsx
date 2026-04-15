@@ -23,7 +23,6 @@ function SetupPage() {
     e.preventDefault();
     setError(null);
 
-    // Client-side validation
     if (!form.displayName.trim()) {
       setError("Display name is required");
       return;
@@ -41,7 +40,6 @@ function SetupPage() {
     try {
       await api.post<ApiResponse<UserInfo>>("/setup/init", form);
       setSuccess(true);
-      // Brief pause to show success, then redirect to login
       setTimeout(() => {
         navigate({ to: "/login" });
       }, 1500);
@@ -57,119 +55,163 @@ function SetupPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[hsl(243,75%,59%)] via-[hsl(262,83%,58%)] to-[hsl(291,47%,51%)]">
-      <div className="animate-fade-in w-full max-w-lg rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-8 shadow-2xl">
-        {/* Logo & Welcome */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-[hsl(243,75%,59%)] to-[hsl(262,83%,58%)] shadow-lg">
-            <Mail className="h-7 w-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Welcome to EdgeMail
-          </h1>
-          <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
-            Set up your admin account to get started.
-            <br />
-            This will be the only account with full access.
-          </p>
-        </div>
+    <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--background))] p-6">
+      {/* Ambient background */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -right-[5%] -top-[10%] h-[60%] w-[40%] rounded-full bg-[hsl(var(--input))] opacity-40 blur-[120px]" />
+        <div className="absolute -bottom-[10%] -left-[5%] h-[50%] w-[35%] rounded-full bg-[hsl(var(--secondary))] opacity-30 blur-[100px]" />
+      </div>
 
-        {/* Success state */}
-        {success && (
-          <div className="flex flex-col items-center gap-3 py-6">
-            <CheckCircle className="h-12 w-12 text-emerald-500" />
-            <p className="text-lg font-semibold">Setup Complete!</p>
-            <p className="text-sm text-[hsl(var(--muted-foreground))]">
-              Redirecting to login...
+      <main className="w-full max-w-[1100px] grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden rounded-xl bg-[hsl(var(--accent))] shadow-ambient">
+        {/* Left: Branding */}
+        <section className="hidden lg:flex lg:col-span-7 flex-col justify-between p-12 gradient-primary relative overflow-hidden">
+          <div className="z-10">
+            <div className="mb-16 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white">
+                <Mail className="h-5 w-5 text-[hsl(var(--primary))]" />
+              </div>
+              <span className="font-[family-name:var(--font-headline)] text-2xl font-extrabold tracking-tight text-white">
+                EdgeMail
+              </span>
+            </div>
+            <h1 className="font-[family-name:var(--font-headline)] text-5xl font-extrabold tracking-tighter leading-[1.1] text-white mb-6">
+              Set up your <br /> email system.
+            </h1>
+            <p className="max-w-md text-lg leading-relaxed text-white/80">
+              Create your admin account to initialize EdgeMail.
+              This will be the only account with full system access.
             </p>
           </div>
-        )}
 
-        {/* Setup Form */}
-        {!success && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
-                {error}
+          <div className="z-10 flex gap-8">
+            <div className="flex flex-col">
+              <span className="font-[family-name:var(--font-headline)] text-3xl font-bold text-white">D1</span>
+              <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-white/60">Database</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-[family-name:var(--font-headline)] text-3xl font-bold text-white">R2</span>
+              <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-white/60">Storage</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-[family-name:var(--font-headline)] text-3xl font-bold text-white">Workers</span>
+              <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-white/60">Runtime</span>
+            </div>
+          </div>
+
+          <div className="absolute inset-0 z-0 opacity-[0.07]">
+            <div className="absolute inset-0" style={{
+              backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)",
+              backgroundSize: "32px 32px",
+            }} />
+          </div>
+        </section>
+
+        {/* Right: Setup form */}
+        <section className="col-span-1 lg:col-span-5 bg-[hsl(var(--card))] p-8 md:p-16 flex flex-col justify-center">
+          <div className="mb-10 flex items-center gap-2 lg:hidden">
+            <Mail className="h-5 w-5 text-[hsl(var(--primary))]" />
+            <span className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight text-[hsl(var(--primary))]">
+              EdgeMail
+            </span>
+          </div>
+
+          <div className="w-full max-w-md mx-auto">
+            {success ? (
+              <div className="flex flex-col items-center gap-3 py-6 animate-fade-in">
+                <CheckCircle className="h-12 w-12 text-emerald-500" />
+                <p className="font-[family-name:var(--font-headline)] text-lg font-semibold">
+                  Setup Complete
+                </p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                  Redirecting to login...
+                </p>
               </div>
+            ) : (
+              <>
+                <header className="mb-10">
+                  <h2 className="font-[family-name:var(--font-headline)] text-3xl font-bold tracking-tight text-[hsl(var(--foreground))] mb-2">
+                    Initialize System
+                  </h2>
+                  <p className="text-[hsl(var(--muted-foreground))]">
+                    Create the admin account to get started.
+                  </p>
+                </header>
+
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {error && (
+                    <div className="rounded-lg bg-[hsl(var(--destructive))]/5 px-4 py-3 text-sm text-[hsl(var(--destructive))]">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="displayName" className="ml-1 text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                      Display Name
+                    </label>
+                    <input
+                      id="displayName"
+                      type="text"
+                      placeholder="Admin"
+                      value={form.displayName}
+                      onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                      disabled={loading}
+                      className="w-full rounded-t-lg border-b-2 border-[hsl(var(--outline-variant))] bg-[hsl(var(--input))] px-4 py-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] transition-all focus:border-[hsl(var(--primary))] focus:bg-[hsl(var(--card))] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="email" className="ml-1 text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                      Email
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      placeholder="admin@yourdomain.com"
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                      disabled={loading}
+                      className="w-full rounded-t-lg border-b-2 border-[hsl(var(--outline-variant))] bg-[hsl(var(--input))] px-4 py-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] transition-all focus:border-[hsl(var(--primary))] focus:bg-[hsl(var(--card))] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="password" className="ml-1 text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                      Password
+                    </label>
+                    <input
+                      id="password"
+                      type="password"
+                      placeholder="Minimum 8 characters"
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                      disabled={loading}
+                      className="w-full rounded-t-lg border-b-2 border-[hsl(var(--outline-variant))] bg-[hsl(var(--input))] px-4 py-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] transition-all focus:border-[hsl(var(--primary))] focus:bg-[hsl(var(--card))] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="group flex w-full items-center justify-center gap-2 rounded-xl gradient-primary py-4 font-[family-name:var(--font-headline)] font-bold text-white shadow-lg transition-all hover:shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Initializing...
+                      </>
+                    ) : (
+                      <>
+                        Initialize EdgeMail
+                        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
             )}
-            <div className="space-y-2">
-              <label
-                htmlFor="displayName"
-                className="text-sm font-medium leading-none"
-              >
-                Display Name
-              </label>
-              <input
-                id="displayName"
-                type="text"
-                placeholder="Admin"
-                value={form.displayName}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, displayName: e.target.value }))
-                }
-                disabled={loading}
-                className="flex h-10 w-full rounded-lg border border-[hsl(var(--input))] bg-transparent px-3 py-2 text-sm placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:ring-offset-2 disabled:opacity-50"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="email"
-                className="text-sm font-medium leading-none"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="admin@yourdomain.com"
-                value={form.email}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, email: e.target.value }))
-                }
-                disabled={loading}
-                className="flex h-10 w-full rounded-lg border border-[hsl(var(--input))] bg-transparent px-3 py-2 text-sm placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:ring-offset-2 disabled:opacity-50"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="password"
-                className="text-sm font-medium leading-none"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                placeholder="Minimum 8 characters"
-                value={form.password}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, password: e.target.value }))
-                }
-                disabled={loading}
-                className="flex h-10 w-full rounded-lg border border-[hsl(var(--input))] bg-transparent px-3 py-2 text-sm placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:ring-offset-2 disabled:opacity-50"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 text-sm font-medium text-[hsl(var(--primary-foreground))] shadow-md transition-all hover:opacity-90 hover:shadow-lg active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Initializing...
-                </>
-              ) : (
-                <>
-                  Initialize EdgeMail
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          </form>
-        )}
-      </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

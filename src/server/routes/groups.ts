@@ -55,8 +55,13 @@ async function loadGroupWithMembers(
  */
 groupsRouter.get("/", async (c) => {
   const db = c.get("db");
+  const domainId = c.req.query("domainId");
 
-  const allGroups = await db.select().from(groups).orderBy(groups.createdAt);
+  const query = domainId
+    ? db.select().from(groups).where(eq(groups.domainId, domainId)).orderBy(groups.createdAt)
+    : db.select().from(groups).orderBy(groups.createdAt);
+
+  const allGroups = await query;
 
   // Load members for each group
   const result = await Promise.all(

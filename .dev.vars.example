@@ -1,8 +1,8 @@
-# Resend API key for sending emails
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
 # Secret used to sign session tokens (generate a random 32+ char string)
 JWT_SECRET=your-secret-key-change-this-in-production
+
+# Resend API key for sending emails
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # Resend webhook signing secret (from Resend dashboard)
 RESEND_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx

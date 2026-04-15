@@ -55,8 +55,13 @@ async function loadAliasWithTargets(
  */
 aliasesRouter.get("/", async (c) => {
   const db = c.get("db");
+  const domainId = c.req.query("domainId");
 
-  const allAliases = await db.select().from(aliases).orderBy(aliases.createdAt);
+  const query = domainId
+    ? db.select().from(aliases).where(eq(aliases.domainId, domainId)).orderBy(aliases.createdAt)
+    : db.select().from(aliases).orderBy(aliases.createdAt);
+
+  const allAliases = await query;
 
   // Load targets for each alias
   const result = await Promise.all(

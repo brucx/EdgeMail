@@ -4,13 +4,13 @@ import {
   Link,
   useLocation,
   useNavigate,
+  useParams,
   redirect,
 } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox,
   Send,
-  Globe,
   Mailbox,
   AtSign,
   Users,
@@ -19,9 +19,13 @@ import {
   LogOut,
   Menu,
   X,
+  Search,
+  PenSquare,
+  ChevronDown,
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import type { DomainInfo } from "@shared/types";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async ({ context, location }) => {
@@ -40,21 +44,23 @@ export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
 });
 
-const navItems = [
-  { to: "/inbox", label: "Inbox", icon: Inbox },
-  { to: "/sent", label: "Sent", icon: Send },
-  { to: "/domains", label: "Domains", icon: Globe },
-  { to: "/mailboxes", label: "Mailboxes", icon: Mailbox },
-  { to: "/aliases", label: "Aliases", icon: AtSign },
-  { to: "/groups", label: "Groups", icon: Users },
-  { to: "/settings", label: "Settings", icon: Settings },
-] as const;
-
 function AuthenticatedLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Get current domainId from URL if on a domain-scoped route
+  const params = useParams({ strict: false }) as { domainId?: string };
+  const currentDomainId = params.domainId;
+
+  // Fetch domains for the switcher
+  const { data: domainsData } = useQuery({
+    queryKey: ["domains"],
+    queryFn: () => api.get<{ data: DomainInfo[] }>("/domains"),
+  });
+  const domains = domainsData?.data ?? [];
+  const currentDomain = domains.find((d) => d.id === currentDomainId);
 
   const handleSignOut = async () => {
     try {
@@ -66,12 +72,32 @@ function AuthenticatedLayout() {
     navigate({ to: "/login" });
   };
 
+  const handleDomainSwitch = (newDomainId: string) => {
+    navigate({ to: "/d/$domainId/inbox", params: { domainId: newDomainId } });
+  };
+
+  // On onboarding page, render full-page without sidebar
+  if (location.pathname === "/onboarding") {
+    return <Outlet />;
+  }
+
+  const domainNavItems = [
+    { path: "/d/$domainId/inbox" as const, label: "Inbox", icon: Inbox },
+    { path: "/d/$domainId/sent" as const, label: "Sent", icon: Send },
+  ];
+
+  const domainManageItems = [
+    { path: "/d/$domainId/mailboxes" as const, label: "Mailboxes", icon: Mailbox },
+    { path: "/d/$domainId/aliases" as const, label: "Aliases", icon: AtSign },
+    { path: "/d/$domainId/groups" as const, label: "Groups", icon: Users },
+  ];
+
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[hsl(var(--background))]">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -79,59 +105,138 @@ function AuthenticatedLayout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-[hsl(var(--sidebar-border))]
-          bg-[hsl(var(--sidebar-background))] transition-transform duration-200
+          fixed inset-y-0 left-0 z-40 flex w-64 flex-col
+          bg-[hsl(var(--accent))] transition-transform duration-200
           lg:static lg:translate-x-0
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Logo */}
-        <div className="flex h-16 items-center gap-3 border-b border-[hsl(var(--sidebar-border))] px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[hsl(243,75%,59%)] to-[hsl(262,83%,58%)]">
+        {/* Brand */}
+        <div className="flex h-16 items-center gap-3 px-6">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl gradient-primary">
             <Mail className="h-5 w-5 text-white" />
           </div>
-          <span className="text-lg font-bold tracking-tight">EdgeMail</span>
+          <span className="font-[family-name:var(--font-headline)] text-lg font-extrabold tracking-tight text-[hsl(var(--primary))]">
+            EdgeMail
+          </span>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto lg:hidden"
+            className="ml-auto rounded-lg p-1 hover:bg-[hsl(var(--muted))] lg:hidden"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-3 py-4">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.to;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
-                  transition-all duration-150
-                  ${
-                    isActive
-                      ? "bg-[hsl(var(--sidebar-accent))] text-[hsl(var(--sidebar-primary))] shadow-sm"
-                      : "text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))]"
-                  }
-                `}
+        {/* Domain Switcher */}
+        {domains.length > 0 && (
+          <div className="px-3 pb-2">
+            <div className="relative">
+              <select
+                value={currentDomainId || ""}
+                onChange={(e) => handleDomainSwitch(e.target.value)}
+                className="w-full appearance-none rounded-lg bg-[hsl(var(--card))] px-3 py-2.5 pr-8 text-sm font-semibold text-[hsl(var(--foreground))] shadow-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 cursor-pointer"
               >
-                <item.icon className="h-4.5 w-4.5 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
+                {!currentDomainId && (
+                  <option value="" disabled>Select domain</option>
+                )}
+                {domains.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.domain}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--outline))]" />
+            </div>
+          </div>
+        )}
+
+        {/* Compose button */}
+        <div className="px-3 pb-4">
+          <button className="flex w-full items-center justify-center gap-3 rounded-xl gradient-primary py-3.5 px-6 text-sm font-semibold text-white shadow-lg shadow-[hsl(var(--primary))]/10 transition-all active:scale-[0.98] hover:shadow-xl">
+            <PenSquare className="h-[18px] w-[18px]" />
+            <span>Compose</span>
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 px-3 overflow-y-auto">
+          {/* Domain-scoped nav - mail */}
+          {currentDomainId && (
+            <>
+              {domainNavItems.map((item) => {
+                const isActive = location.pathname.startsWith(`/d/${currentDomainId}/${item.path.split("/").pop()}`);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    params={{ domainId: currentDomainId }}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`
+                      flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      transition-all duration-200
+                      ${
+                        isActive
+                          ? "bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-sm font-semibold"
+                          : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:translate-x-0.5"
+                      }
+                    `}
+                  >
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+
+              {/* Separator */}
+              <div className="my-2 h-px bg-[hsl(var(--outline-variant))]/10 mx-1" />
+
+              {/* Domain-scoped nav - manage */}
+              {domainManageItems.map((item) => {
+                const isActive = location.pathname.startsWith(`/d/${currentDomainId}/${item.path.split("/").pop()}`);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    params={{ domainId: currentDomainId }}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`
+                      flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      transition-all duration-200
+                      ${
+                        isActive
+                          ? "bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-sm font-semibold"
+                          : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:translate-x-0.5"
+                      }
+                    `}
+                  >
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-[hsl(var(--sidebar-border))] p-3">
+        <div className="space-y-1 p-3">
+          <Link
+            to="/settings"
+            onClick={() => setSidebarOpen(false)}
+            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+              location.pathname.startsWith("/settings")
+                ? "bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-sm font-semibold"
+                : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+            }`}
+          >
+            <Settings className="h-[18px] w-[18px] shrink-0" />
+            Settings
+          </Link>
           <button
             onClick={handleSignOut}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[hsl(var(--sidebar-foreground))] transition-colors hover:bg-[hsl(var(--sidebar-accent))]"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-all duration-200 hover:bg-[hsl(var(--muted))]"
           >
-            <LogOut className="h-4.5 w-4.5 shrink-0" />
+            <LogOut className="h-[18px] w-[18px] shrink-0" />
             Sign Out
           </button>
         </div>
@@ -139,16 +244,32 @@ function AuthenticatedLayout() {
 
       {/* Main content */}
       <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar (mobile) */}
-        <header className="flex h-16 items-center gap-4 border-b border-[hsl(var(--border))] px-6 lg:hidden">
-          <button onClick={() => setSidebarOpen(true)}>
+        {/* Top bar */}
+        <header className="flex h-14 items-center gap-4 bg-[hsl(var(--card))] px-6">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-1.5 hover:bg-[hsl(var(--accent))] lg:hidden"
+          >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="text-lg font-bold">EdgeMail</span>
+          <span className="font-[family-name:var(--font-headline)] text-lg font-bold tracking-tight text-[hsl(var(--primary))] lg:hidden">
+            EdgeMail
+          </span>
+
+          {/* Search (desktop) */}
+          <div className="relative hidden max-w-md flex-1 lg:block">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--outline))]" />
+            <input
+              type="text"
+              placeholder="Search..."
+              className="h-9 w-full rounded-xl border-none bg-[hsl(var(--accent))] pl-10 pr-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 transition-all"
+            />
+          </div>
+          <div className="ml-auto" />
         </header>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
           <Outlet />
         </div>
       </main>
