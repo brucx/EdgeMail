@@ -270,9 +270,9 @@ function AuthenticatedLayout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex flex-1 flex-col overflow-hidden bg-[hsl(var(--accent))]">
         {/* Top bar */}
-        <header className="flex h-14 items-center gap-4 bg-[hsl(var(--card))] px-6">
+        <header className="flex h-14 shrink-0 items-center gap-4 px-8 pt-4">
           <button
             onClick={() => setSidebarOpen(true)}
             className="rounded-lg p-1.5 hover:bg-[hsl(var(--accent))] lg:hidden"
@@ -289,7 +289,7 @@ function AuthenticatedLayout() {
             <input
               type="text"
               placeholder="Search..."
-              className="h-9 w-full rounded-xl border-none bg-[hsl(var(--accent))] pl-10 pr-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 transition-all"
+              className="h-10 w-full rounded-xl border-none bg-[hsl(var(--card))] shadow-sm pl-10 pr-4 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--outline))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]/20 transition-all"
             />
           </div>
           <div className="ml-auto" />
