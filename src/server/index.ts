@@ -34,8 +34,9 @@ app.onError((err, c) => {
 
 app.use("/*", cors());
 
-// Inject Drizzle DB instance into every request
+// Inject Drizzle DB instance + ensure schema is up to date
 app.use("/api/*", async (c, next) => {
+  await ensureTablesExist(c.env.DB);
   const db = createDb(c.env.DB);
   c.set("db", db);
 
