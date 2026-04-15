@@ -37,6 +37,8 @@
   // Environment variables (set via dashboard or .dev.vars)
   "vars": {
     "APP_NAME": "EdgeMail",
-    "ADMIN_EMAIL": "admin@example.com"
+    "ADMIN_EMAIL": "admin@example.com",
+    "D1_DATABASE_ID": "YOUR_D1_DATABASE_ID",
+    "R2_BUCKET_NAME": "edgemail-storage"
   }
 }

@@ -50,6 +50,9 @@ storageRouter.get("/stats", async (c) => {
     } satisfies StorageStats);
   }
 
+  const d1DatabaseId = c.env.D1_DATABASE_ID;
+  const r2BucketName = c.env.R2_BUCKET_NAME;
+
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   // D1 uses Date type (YYYY-MM-DD), R2 uses Time type (ISO 8601)
@@ -58,12 +61,22 @@ storageRouter.get("/stats", async (c) => {
   const timeStart = yesterday.toISOString();
   const timeEnd = now.toISOString();
 
-  // Query D1 and R2 in parallel
+  // Query D1 and R2 in parallel, scoped to this project's resources
   const [d1Result, r2Result] = await Promise.all([
-    cfGraphQL(token, D1_QUERY, { accountTag: accountId, dateStart, dateEnd }).catch(
+    cfGraphQL(token, D1_QUERY, {
+      accountTag: accountId,
+      dateStart,
+      dateEnd,
+      ...(d1DatabaseId && { databaseId: d1DatabaseId }),
+    }).catch(
       (err) => ({ errors: [{ message: String(err) }] }) as GraphQLResponse,
     ),
-    cfGraphQL(token, R2_QUERY, { accountTag: accountId, dateStart: timeStart, dateEnd: timeEnd }).catch(
+    cfGraphQL(token, R2_QUERY, {
+      accountTag: accountId,
+      dateStart: timeStart,
+      dateEnd: timeEnd,
+      ...(r2BucketName && { bucketName: r2BucketName }),
+    }).catch(
       (err) => ({ errors: [{ message: String(err) }] }) as GraphQLResponse,
     ),
   ]);
@@ -185,24 +198,22 @@ export default storageRouter;
 // ─── GraphQL Queries ──────────────────────────────────────────────────────
 
 const D1_QUERY = `
-query D1Storage($accountTag: string!, $dateStart: Date!, $dateEnd: Date!) {
+query D1Storage($accountTag: string!, $dateStart: Date!, $dateEnd: Date!, $databaseId: string) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
       d1StorageAdaptiveGroups(
-        filter: { date_geq: $dateStart, date_leq: $dateEnd }
+        filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }
         limit: 100
-        orderBy: [date_DESC]
       ) {
         dimensions {
           databaseId
-          date
         }
         max {
           databaseSizeBytes
         }
       }
       d1AnalyticsAdaptiveGroups(
-        filter: { date_geq: $dateStart, date_leq: $dateEnd }
+        filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }
         limit: 100
         orderBy: [date_DESC]
       ) {
@@ -220,11 +231,11 @@ query D1Storage($accountTag: string!, $dateStart: Date!, $dateEnd: Date!) {
 `;
 
 const R2_QUERY = `
-query R2Storage($accountTag: string!, $dateStart: Time!, $dateEnd: Time!) {
+query R2Storage($accountTag: string!, $dateStart: Time!, $dateEnd: Time!, $bucketName: string) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
       r2StorageAdaptiveGroups(
-        filter: { datetime_geq: $dateStart, datetime_leq: $dateEnd }
+        filter: { datetime_geq: $dateStart, datetime_leq: $dateEnd, bucketName: $bucketName }
         limit: 100
         orderBy: [datetime_DESC]
       ) {

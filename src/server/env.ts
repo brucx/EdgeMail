@@ -24,6 +24,8 @@ export interface Env {
 
   // Non-secret vars (set in wrangler.jsonc)
   APP_NAME: string;
+  D1_DATABASE_ID?: string;
+  R2_BUCKET_NAME?: string;
 }
 
 /**
