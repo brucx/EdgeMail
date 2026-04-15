@@ -340,28 +340,48 @@ cloudflareRouter.post(
       }
 
       // Step 4: Enable Email Routing
+      // Try the documented endpoint; if it fails (403/404), check if already
+      // enabled via GET and treat as skipped — the catch-all step will surface
+      // a real error if routing is genuinely not active.
       if (!skipRoutingEnable) {
         try {
-          await cfFetch(token, `/zones/${zoneId}/email/routing/enable`, {
+          await cfFetch(token, `/zones/${zoneId}/email/routing/dns`, {
             method: "POST",
           });
           steps.routing_enable = "success";
         } catch (err) {
-          // May already be enabled — check the error
           const msg = err instanceof Error ? err.message : "";
-          if (msg.includes("already enabled") || msg.includes("already exists")) {
+          // Check if email routing is already enabled
+          try {
+            const settings = await cfFetch(
+              token,
+              `/zones/${zoneId}/email/routing`,
+            );
+            const result = settings.result as { enabled?: boolean } | null;
+            if (result?.enabled) {
+              steps.routing_enable = "skipped";
+            } else {
+              // Routing not enabled and we can't enable it via API
+              steps.routing_enable = "error";
+              lastError =
+                "Could not enable Email Routing. Please enable it manually in Cloudflare Dashboard → Email → Email Routing.";
+              await db
+                .update(domains)
+                .set({
+                  cfSetupStatus: "dns_created",
+                  updatedAt: new Date().toISOString(),
+                })
+                .where(eq(domains.id, domainId));
+              throw new Error(lastError);
+            }
+          } catch (checkErr) {
+            if (lastError) throw checkErr;
+            // If even the GET fails, skip optimistically and let catch-all step determine
+            console.warn(
+              "[EdgeMail] Could not verify Email Routing status, proceeding:",
+              msg,
+            );
             steps.routing_enable = "skipped";
-          } else {
-            steps.routing_enable = "error";
-            lastError = msg || "Email Routing enable failed";
-            await db
-              .update(domains)
-              .set({
-                cfSetupStatus: "dns_created",
-                updatedAt: new Date().toISOString(),
-              })
-              .where(eq(domains.id, domainId));
-            throw err;
           }
         }
 
