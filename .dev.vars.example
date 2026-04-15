@@ -9,3 +9,17 @@ RESEND_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # Admin email address (used during initial setup)
 ADMIN_EMAIL=admin@yourdomain.com
+
+# ── Cloudflare API Integration (optional) ──────────────────────────────
+# Enables one-click domain setup: auto-configures DNS + Email Routing.
+# Create a token at: https://dash.cloudflare.com/profile/api-tokens
+# Required permissions: Zone Read, DNS Edit, Email Routing Rules Edit
+
+# Cloudflare API token
+CLOUDFLARE_API_TOKEN=
+
+# Cloudflare account ID (found on dashboard homepage → API section)
+CLOUDFLARE_ACCOUNT_ID=
+
+# Worker name for catch-all rule (defaults to "edgemail" if omitted)
+# CF_WORKER_NAME=edgemail

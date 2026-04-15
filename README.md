@@ -116,6 +116,26 @@ Set `ADMIN_EMAIL` as a regular Worker variable in `wrangler.jsonc` or in the Clo
 
 ### 7. Configure Email Routing
 
+**Option A: Automatic (recommended)** — set up Cloudflare API integration and let EdgeMail configure everything for you:
+
+```bash
+# Set Cloudflare API token and account ID
+npx wrangler secret put CLOUDFLARE_API_TOKEN
+npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
+```
+
+Create an API Token at [Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Custom Token** with these permissions:
+
+| Permission | Access |
+|------------|--------|
+| Zone → Zone | Read |
+| Zone → DNS | Edit |
+| Zone → Email Routing Rules | Edit |
+
+Then open EdgeMail → **Settings → Cloudflare** to verify the connection, and use **Import from Cloudflare** on the Domains page to auto-configure DNS records and Email Routing in one click.
+
+**Option B: Manual** — configure in the Cloudflare Dashboard yourself:
+
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → your domain → **Email** → **Email Routing**
 2. Enable Email Routing for your domain
 3. Under **Routing Rules**, create a **Catch-all** rule pointing to the `edgemail` Worker
