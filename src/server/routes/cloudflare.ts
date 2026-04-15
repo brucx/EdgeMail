@@ -28,7 +28,8 @@ async function cfFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<CfApiResponse> {
-  const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+  const url = `https://api.cloudflare.com/client/v4${path}`;
+  const res = await fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -38,9 +39,13 @@ async function cfFetch(
   });
   const body = (await res.json()) as CfApiResponse;
   if (!body.success) {
-    throw new Error(
-      body.errors?.[0]?.message || "Cloudflare API error",
+    console.error(
+      `[EdgeMail] CF API ${options.method || "GET"} ${path} → ${res.status}`,
+      JSON.stringify(body.errors),
     );
+    const msg = body.errors?.map((e) => `${e.code}: ${e.message}`).join("; ")
+      || `Cloudflare API error (HTTP ${res.status})`;
+    throw new Error(msg);
   }
   return body;
 }
