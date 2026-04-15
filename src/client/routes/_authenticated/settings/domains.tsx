@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import type { DomainInfo, ApiResponse, CloudflareStatusResponse } from "@shared/types";
+import type { DomainInfo, ApiResponse } from "@shared/types";
 import { CloudflareImportModal } from "@/components/CloudflareImportModal";
 
 export const Route = createFileRoute("/_authenticated/settings/domains")({
@@ -26,11 +26,6 @@ function DomainsPage() {
   const [showImport, setShowImport] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [error, setError] = useState("");
-
-  const { data: cfStatus } = useQuery({
-    queryKey: ["cloudflare", "status"],
-    queryFn: () => api.get<CloudflareStatusResponse>("/cloudflare/status"),
-  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["domains"],
@@ -104,15 +99,13 @@ function DomainsPage() {
           Domains
         </h2>
         <div className="flex items-center gap-2">
-          {cfStatus?.connected && (
-            <button
-              onClick={() => setShowImport(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-xl bg-[hsl(var(--accent))] px-4 text-sm font-medium text-[hsl(var(--foreground))] transition-all hover:bg-[hsl(var(--input))] active:scale-[0.98]"
-            >
-              <Cloud className="h-4 w-4" />
-              Import from Cloudflare
-            </button>
-          )}
+          <button
+            onClick={() => setShowImport(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-xl bg-[hsl(var(--accent))] px-4 text-sm font-medium text-[hsl(var(--foreground))] transition-all hover:bg-[hsl(var(--input))] active:scale-[0.98]"
+          >
+            <Cloud className="h-4 w-4" />
+            Import from Cloudflare
+          </button>
           <button
             onClick={() => setShowCreate(true)}
             className="inline-flex h-9 items-center gap-2 rounded-xl gradient-primary px-4 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md active:scale-[0.98]"
