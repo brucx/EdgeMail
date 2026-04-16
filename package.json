@@ -9,6 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply edgemail-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply edgemail-db --remote",
@@ -26,6 +29,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.0.0",
+    "@cloudflare/vitest-pool-workers": "^0.14.7",
     "@cloudflare/workers-types": "^4.20250410.0",
     "@tailwindcss/vite": "^4.1.0",
     "@tanstack/react-query": "^5.68.0",
@@ -45,6 +49,7 @@
     "tailwind-merge": "^3.0.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
+    "vitest": "^4.1.4",
     "wrangler": "^4.14.0"
   },
   "optionalDependencies": {

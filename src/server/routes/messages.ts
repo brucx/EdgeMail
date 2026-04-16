@@ -57,6 +57,7 @@ messagesRouter.get("/", async (c) => {
       subject: messages.subject,
       isRead: messageDeliveries.isRead,
       createdAt: messages.createdAt,
+      deliveryStatus: messages.deliveryStatus,
       deliveryId: messageDeliveries.id,
     })
     .from(messageDeliveries)
@@ -83,6 +84,7 @@ messagesRouter.get("/", async (c) => {
         subject: msg.subject,
         isRead: msg.isRead,
         hasAttachments: attCount > 0,
+        deliveryStatus: msg.deliveryStatus,
         createdAt: msg.createdAt,
       };
     }),
@@ -156,6 +158,8 @@ messagesRouter.get("/:id", async (c) => {
       htmlBody: safeHtml,
       isRead: delivery?.isRead ?? false,
       hasAttachments: atts.length > 0,
+      deliveryStatus: message.deliveryStatus,
+      deliveryError: message.deliveryError,
       createdAt: message.createdAt,
       recipients,
       attachments: atts,

@@ -16,6 +16,12 @@ export const messages = sqliteTable(
     htmlBody: text("html_body"),
     rawKey: text("raw_key"), // R2 key: raw/{id}.eml
     size: integer("size").notNull().default(0), // bytes
+    // Outbound delivery state (populated by the Resend webhook).
+    // NULL for inbound mail. Values: "sent" | "delivered" | "bounced" |
+    // "complained" | "delivery_delayed" | "failed".
+    deliveryStatus: text("delivery_status"),
+    deliveryError: text("delivery_error"),
+    deliveryUpdatedAt: text("delivery_updated_at"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),

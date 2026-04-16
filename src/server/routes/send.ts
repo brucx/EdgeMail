@@ -166,6 +166,8 @@ sendRouter.post(
           textBody: text || null,
           htmlBody: html || null,
           size: (text?.length || 0) + (html?.length || 0),
+          deliveryStatus: "sent",
+          deliveryUpdatedAt: new Date().toISOString(),
         }),
         ...recipientRows.map((row) => db.insert(messageRecipients).values(row)),
         db.insert(messageDeliveries).values({

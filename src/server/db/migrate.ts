@@ -184,6 +184,10 @@ const ALTER_STATEMENTS = [
   `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key_hint\` text`,
   // P0-6: password hashing algorithm collar
   `ALTER TABLE \`users\` ADD COLUMN \`password_algo\` text`,
+  // P1-3: outbound delivery tracking via Resend webhook
+  `ALTER TABLE \`messages\` ADD COLUMN \`delivery_status\` text`,
+  `ALTER TABLE \`messages\` ADD COLUMN \`delivery_error\` text`,
+  `ALTER TABLE \`messages\` ADD COLUMN \`delivery_updated_at\` text`,
 ];
 
 /**

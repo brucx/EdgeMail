@@ -19,7 +19,12 @@
       "@shared/*": ["./src/shared/*"],
       "@/*": ["./src/client/*"]
     },
-    "types": ["@cloudflare/workers-types/2023-07-01", "vite/client", "node"]
+    "types": [
+      "@cloudflare/workers-types/2023-07-01",
+      "vite/client",
+      "node",
+      "@cloudflare/vitest-pool-workers"
+    ]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "drizzle.config.ts"],
   "exclude": ["node_modules", "dist"]

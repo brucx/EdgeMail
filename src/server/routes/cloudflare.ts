@@ -6,7 +6,16 @@ import { domains, auditLogs } from "../db/schema";
 import { generateId } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
 import { cfSetupSchema } from "@shared/types";
-import type { CloudflareSetupResult, SetupStepStatus } from "@shared/types";
+import type { CloudflareSetupResult } from "@shared/types";
+import { cfFetch, CloudflareApiError } from "../services/cloudflare/api";
+import {
+  ensureMx,
+  ensureSpf,
+  ensureDkim,
+  ensureRoutingEnabled,
+  ensureCatchAll,
+  type StepResult,
+} from "../services/cloudflare/steps";
 
 const cloudflareRouter = new Hono<{
   Bindings: Env;
@@ -14,41 +23,6 @@ const cloudflareRouter = new Hono<{
 }>();
 
 cloudflareRouter.use("/*", requireAuth);
-
-// ─── Cloudflare API Helper ────────────────────────────────────────────────
-
-interface CfApiResponse {
-  success: boolean;
-  result: unknown;
-  errors?: Array<{ code: number; message: string }>;
-}
-
-async function cfFetch(
-  token: string,
-  path: string,
-  options: RequestInit = {},
-): Promise<CfApiResponse> {
-  const url = `https://api.cloudflare.com/client/v4${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  const body = (await res.json()) as CfApiResponse;
-  if (!body.success) {
-    console.error(
-      `[EdgeMail] CF API ${options.method || "GET"} ${path} → ${res.status}`,
-      JSON.stringify(body.errors),
-    );
-    const msg = body.errors?.map((e) => `${e.code}: ${e.message}`).join("; ")
-      || `Cloudflare API error (HTTP ${res.status})`;
-    throw new Error(msg);
-  }
-  return body;
-}
 
 // ─── GET /api/cloudflare/status ───────────────────────────────────────────
 
@@ -70,6 +44,7 @@ cloudflareRouter.get("/status", async (c) => {
 // ─── GET /api/cloudflare/zones ────────────────────────────────────────────
 
 cloudflareRouter.get("/zones", async (c) => {
+  const log = c.get("logger");
   const token = c.env.CLOUDFLARE_API_TOKEN;
   if (!token) {
     return c.json({ error: "Cloudflare integration not configured" }, 503);
@@ -81,21 +56,15 @@ cloudflareRouter.get("/zones", async (c) => {
       path += `&account.id=${c.env.CLOUDFLARE_ACCOUNT_ID}`;
     }
 
-    const cfResult = await cfFetch(token, path);
-    const zones = cfResult.result as Array<{
-      id: string;
-      name: string;
-      status: string;
-    }>;
+    const cfResult = await cfFetch<
+      Array<{ id: string; name: string; status: string }>
+    >(token, path);
+    const zones = cfResult.result;
 
-    // Cross-reference with existing EdgeMail domains
     const db = c.get("db");
     const existingDomains = await db.select().from(domains);
-    const domainMap = new Map(
-      existingDomains.map((d) => [d.domain, d]),
-    );
+    const domainMap = new Map(existingDomains.map((d) => [d.domain, d]));
 
-    // Query MX records for each zone in parallel to detect existing MX configs
     const zoneDataWithMx = await Promise.all(
       zones.map(async (zone) => {
         const existing = domainMap.get(zone.name);
@@ -108,28 +77,18 @@ cloudflareRouter.get("/zones", async (c) => {
           existingMxRecords: [] as string[],
         };
 
-        // Skip MX check for already-linked domains
         if (base.linked) return base;
 
         try {
-          const mxResult = await cfFetch(
-            token,
-            `/zones/${zone.id}/dns_records?type=MX`,
-          );
-          const mxRecords = mxResult.result as Array<{
-            name: string;
-            content: string;
-            priority: number;
-          }>;
-          // Flag non-Cloudflare MX records AT THE APEX ONLY. Subdomain MX
-          // (e.g. `send.<zone>` for Resend/SES bounce feedback) is not
-          // touched by EdgeMail setup and must not be reported as a conflict.
-          base.existingMxRecords = mxRecords
+          const mxResult = await cfFetch<
+            Array<{ name: string; content: string; priority: number }>
+          >(token, `/zones/${zone.id}/dns_records?type=MX`);
+          base.existingMxRecords = mxResult.result
             .filter((r) => r.name === zone.name)
             .filter((r) => !r.content.includes("mx.cloudflare.net"))
             .map((r) => `${r.priority} ${r.content}`);
         } catch {
-          // Non-critical — just skip MX check
+          // non-critical
         }
 
         return base;
@@ -139,7 +98,7 @@ cloudflareRouter.get("/zones", async (c) => {
     return c.json({ data: zoneDataWithMx });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[EdgeMail] Cloudflare zones error:", message);
+    log.error("cloudflare zones lookup failed", { err });
     return c.json({ error: message }, 502);
   }
 });
@@ -160,12 +119,7 @@ cloudflareRouter.get("/zones/:zoneId/dns", async (c) => {
       cfFetch(token, `/zones/${zoneId}/dns_records?type=TXT`),
     ]);
 
-    return c.json({
-      data: {
-        mx: mxResult.result,
-        txt: txtResult.result,
-      },
-    });
+    return c.json({ data: { mx: mxResult.result, txt: txtResult.result } });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return c.json({ error: message }, 502);
@@ -173,6 +127,7 @@ cloudflareRouter.get("/zones/:zoneId/dns", async (c) => {
 });
 
 // ─── POST /api/cloudflare/zones/:zoneId/setup ─────────────────────────────
+// Orchestrator only: every substantive operation lives in services/cloudflare/steps.
 
 cloudflareRouter.post(
   "/zones/:zoneId/setup",
@@ -185,6 +140,7 @@ cloudflareRouter.post(
     }
   }),
   async (c) => {
+    const log = c.get("logger");
     const token = c.env.CLOUDFLARE_API_TOKEN;
     if (!token) {
       return c.json({ error: "Cloudflare integration not configured" }, 503);
@@ -194,8 +150,10 @@ cloudflareRouter.post(
     const { zoneId } = c.req.param();
     const { domainName, existingDomainId, forceOverwrite, resumeFrom } =
       c.req.valid("json");
-
     const workerName = c.env.CF_WORKER_NAME || "edgemail";
+
+    const skipDns = resumeFrom === "dns_created" || resumeFrom === "routing_enabled";
+    const skipToCatchAll = resumeFrom === "routing_enabled";
 
     const steps: CloudflareSetupResult["steps"] = {
       dns_mx: "skipped",
@@ -205,289 +163,75 @@ cloudflareRouter.post(
       routing_catchall: "skipped",
     };
 
-    const skipDns = resumeFrom === "dns_created" || resumeFrom === "routing_enabled";
-    const skipToCatchAll = resumeFrom === "routing_enabled";
-
-    // ── Phase 1: All Cloudflare API operations (no D1 writes) ───────
+    let conflictingRecords: string[] | undefined;
 
     try {
-      // ── Step 1: DNS — check/create MX and SPF records ──────────
-
+      // ── MX ────────────────────────────────────────────────────────────
       if (!skipDns) {
-        const existingDns = await cfFetch(
+        const mxResult = await ensureMx(
           token,
-          `/zones/${zoneId}/dns_records?type=MX`,
+          zoneId,
+          domainName,
+          !!forceOverwrite,
+          log,
         );
-        const allMxRecords = existingDns.result as Array<{
-          id: string;
-          name: string;
-          content: string;
-        }>;
-
-        // Scope to apex MX only — subdomain MX (e.g. `send.<zone>` used by
-        // Resend/SES for bounce feedback) is unrelated to EdgeMail routing
-        // and must not be detected as a conflict or deleted.
-        const mxRecords = allMxRecords.filter((r) => r.name === domainName);
-
-        const hasConflicting = mxRecords.some(
-          (r) => !r.content.includes("mx.cloudflare.net"),
-        );
-
-        // Return conflict info as 200 so the client can show the
-        // "Replace & Continue" UI (409 was unreachable from onSuccess)
-        if (hasConflicting && !forceOverwrite) {
+        steps.dns_mx = mxResult.status;
+        if (mxResult.status === "error" && mxResult.conflictingRecords) {
+          // Surface the conflict to the UI; do not 500 or continue further.
           return c.json({
             data: { domainId: "", steps },
             warning: "Existing non-Cloudflare MX records found",
-            conflictingRecords: mxRecords
-              .filter((r) => !r.content.includes("mx.cloudflare.net"))
-              .map((r) => r.content),
+            conflictingRecords: mxResult.conflictingRecords,
           });
         }
 
-        // Delete conflicting MX records if forceOverwrite
-        if (hasConflicting && forceOverwrite) {
-          await Promise.all(
-            mxRecords
-              .filter((r) => !r.content.includes("mx.cloudflare.net"))
-              .map((r) =>
-                cfFetch(token, `/zones/${zoneId}/dns_records/${r.id}`, {
-                  method: "DELETE",
-                }),
-              ),
-          );
-        }
-
-        // Create missing Cloudflare MX records (Email Routing needs all 3)
-        const CF_MX = [
-          { content: "route1.mx.cloudflare.net", priority: 36 },
-          { content: "route2.mx.cloudflare.net", priority: 84 },
-          { content: "route3.mx.cloudflare.net", priority: 12 },
-        ];
-        const existingCfMx = new Set(
-          mxRecords
-            .filter((r) => r.content.includes("mx.cloudflare.net"))
-            .map((r) => r.content.replace(/\.$/, "")),
-        );
-        const missingMx = CF_MX.filter((m) => !existingCfMx.has(m.content));
-
-        if (missingMx.length > 0) {
-          await Promise.all(
-            missingMx.map((mx) =>
-              cfFetch(token, `/zones/${zoneId}/dns_records`, {
-                method: "POST",
-                body: JSON.stringify({
-                  type: "MX",
-                  name: domainName,
-                  content: mx.content,
-                  priority: mx.priority,
-                  ttl: 3600,
-                }),
-              }),
-            ),
-          );
-          steps.dns_mx = "success";
-        }
-
-        // Create SPF TXT record if not present
-        const existingTxt = await cfFetch(
-          token,
-          `/zones/${zoneId}/dns_records?type=TXT`,
-        );
-        const txtRecords = existingTxt.result as Array<{
-          id: string;
-          content: string;
-        }>;
-        const hasSpf = txtRecords.some((r) =>
-          r.content.includes("_spf.mx.cloudflare.net"),
-        );
-        if (!hasSpf) {
-          await cfFetch(token, `/zones/${zoneId}/dns_records`, {
-            method: "POST",
-            body: JSON.stringify({
-              type: "TXT",
-              name: domainName,
-              content: "v=spf1 include:_spf.mx.cloudflare.net ~all",
-              ttl: 3600,
-            }),
-          });
-          steps.dns_spf = "success";
-        }
-
+        // ── SPF ─────────────────────────────────────────────────────────
+        const spfResult = await ensureSpf(token, zoneId, domainName);
+        steps.dns_spf = spfResult.status;
       }
 
-      // ── Step 2: Try to enable Email Routing via API ────────────
-
+      // ── Routing Enable ─────────────────────────────────────────────────
       if (!skipToCatchAll) {
-        try {
-          const routingStatus = await cfFetch(
-            token,
-            `/zones/${zoneId}/email/routing`,
-          );
-          const settings = routingStatus.result as { enabled?: boolean };
-
-          if (settings.enabled) {
-            steps.routing_enable = "success";
-          } else {
-            await cfFetch(
-              token,
-              `/zones/${zoneId}/email/routing/enable`,
-              { method: "POST", body: JSON.stringify({ enabled: true }) },
-            );
-            steps.routing_enable = "success";
-          }
-        } catch {
-          // Scoped tokens may lack permission — user must enable in
-          // Cloudflare Dashboard once per zone. Non-fatal: catch-all
-          // may still succeed if routing was enabled previously.
-          steps.routing_enable = "skipped";
-        }
+        const enableResult = await ensureRoutingEnabled(token, zoneId);
+        steps.routing_enable = enableResult.status;
       }
 
-      // ── Step 3: DKIM record ────────────────────────────────────
-      // Runs AFTER Enable so the DKIM key is available for fresh zones.
-      // Enable auto-creates DKIM in DNS; we check and create only if missing.
-
+      // ── DKIM (runs after enable so the key is published) ──────────────
       if (!skipDns) {
-        try {
-          // Check if DKIM already exists in DNS
-          const allTxt = await cfFetch(
-            token,
-            `/zones/${zoneId}/dns_records?type=TXT`,
-          );
-          const allTxtRecords = allTxt.result as Array<{
-            name: string;
-            content: string;
-          }>;
-          const hasDkim = allTxtRecords.some((r) =>
-            r.content.includes("v=DKIM1"),
-          );
-
-          if (hasDkim) {
-            steps.dns_dkim = "success";
-          } else {
-            // Get the required DKIM value from Email Routing DNS API
-            // (needs Zone Settings Read permission)
-            const routingDns = await cfFetch(
-              token,
-              `/zones/${zoneId}/email/routing/dns`,
-            );
-            const requiredRecords = (
-              routingDns.result as Array<{
-                type: string;
-                name: string;
-                content: string;
-                ttl: number;
-              }>
-            ) ?? [];
-
-            const dkimRecord = requiredRecords.find(
-              (r) => r.type === "TXT" && r.name.includes("._domainkey"),
-            );
-
-            if (dkimRecord) {
-              await cfFetch(token, `/zones/${zoneId}/dns_records`, {
-                method: "POST",
-                body: JSON.stringify({
-                  type: "TXT",
-                  name: dkimRecord.name,
-                  content: dkimRecord.content,
-                  ttl: dkimRecord.ttl || 3600,
-                }),
-              });
-              steps.dns_dkim = "success";
-            }
-          }
-        } catch {
-          // Zone Settings Read permission missing — skip gracefully
-          steps.dns_dkim = "skipped";
-        }
+        const dkimResult = await ensureDkim(token, zoneId);
+        steps.dns_dkim = dkimResult.status;
       }
 
-      // ── Step 4: Set catch-all rule to Worker ───────────────────
-
-      await cfFetch(
-        token,
-        `/zones/${zoneId}/email/routing/rules/catch_all`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            matchers: [{ type: "all" }],
-            actions: [{ type: "worker", value: [workerName] }],
-            enabled: true,
-          }),
-        },
-      );
-      steps.routing_catchall = "success";
-
+      // ── Catch-all ─────────────────────────────────────────────────────
+      const catchResult = await ensureCatchAll(token, zoneId, workerName);
+      steps.routing_catchall = catchResult.status;
     } catch (err) {
-      // CF API failed — no D1 writes happened, return clean error
-      let message = err instanceof Error ? err.message : "Setup failed";
-      console.error("[EdgeMail] Cloudflare setup error:", message, err);
+      const base = err instanceof Error ? err.message : "Setup failed";
+      log.error("cloudflare setup failed", { err, zoneId, domainName, steps });
+
+      const hint = steps.routing_catchall !== "success"
+        ? "\n\nHint: If Email Routing is not yet enabled for this domain, " +
+          "go to Cloudflare Dashboard → Email → Email Routing → Enable, then retry."
+        : "";
 
       if (steps.routing_catchall !== "success") {
         steps.routing_catchall = "error";
-        message +=
-          "\n\nHint: If Email Routing is not yet enabled for this domain, " +
-          "go to Cloudflare Dashboard → Email → Email Routing → Enable, then retry.";
       }
 
       return c.json(
-        { data: { domainId: "", steps } satisfies CloudflareSetupResult, error: message },
+        {
+          data: { domainId: "", steps } satisfies CloudflareSetupResult,
+          error: base + hint,
+          conflictingRecords,
+          cfStatus: err instanceof CloudflareApiError ? err.status : undefined,
+        },
         500,
       );
     }
 
-    // ── Phase 2: All CF API succeeded — now write to D1 ─────────────
+    // ── D1 write: mark domain active + linked to zone ──────────────────
+    const domainId = await upsertDomain(db, existingDomainId, domainName, zoneId);
 
-    let domainId: string;
-
-    if (existingDomainId) {
-      domainId = existingDomainId;
-      await db
-        .update(domains)
-        .set({
-          cfZoneId: zoneId,
-          status: "active",
-          mxVerified: true,
-          cfSetupStatus: "complete",
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(domains.id, existingDomainId));
-    } else {
-      const existing = await db
-        .select()
-        .from(domains)
-        .where(eq(domains.domain, domainName))
-        .limit(1)
-        .then((rows) => rows[0]);
-
-      if (existing) {
-        domainId = existing.id;
-        await db
-          .update(domains)
-          .set({
-            cfZoneId: zoneId,
-            status: "active",
-            mxVerified: true,
-            cfSetupStatus: "complete",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(domains.id, existing.id));
-      } else {
-        domainId = generateId();
-        await db.insert(domains).values({
-          id: domainId,
-          domain: domainName,
-          status: "active",
-          mxVerified: true,
-          cfZoneId: zoneId,
-          cfSetupStatus: "complete",
-        });
-      }
-    }
-
-    // Audit log
     await db.insert(auditLogs).values({
       id: generateId(),
       userId: c.get("userId"),
@@ -504,4 +248,62 @@ cloudflareRouter.post(
   },
 );
 
+async function upsertDomain(
+  db: AppVariables["db"],
+  existingDomainId: string | undefined,
+  domainName: string,
+  zoneId: string,
+): Promise<string> {
+  const now = new Date().toISOString();
+
+  if (existingDomainId) {
+    await db
+      .update(domains)
+      .set({
+        cfZoneId: zoneId,
+        status: "active",
+        mxVerified: true,
+        cfSetupStatus: "complete",
+        updatedAt: now,
+      })
+      .where(eq(domains.id, existingDomainId));
+    return existingDomainId;
+  }
+
+  const existing = await db
+    .select()
+    .from(domains)
+    .where(eq(domains.domain, domainName))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (existing) {
+    await db
+      .update(domains)
+      .set({
+        cfZoneId: zoneId,
+        status: "active",
+        mxVerified: true,
+        cfSetupStatus: "complete",
+        updatedAt: now,
+      })
+      .where(eq(domains.id, existing.id));
+    return existing.id;
+  }
+
+  const newId = generateId();
+  await db.insert(domains).values({
+    id: newId,
+    domain: domainName,
+    status: "active",
+    mxVerified: true,
+    cfZoneId: zoneId,
+    cfSetupStatus: "complete",
+  });
+  return newId;
+}
+
 export default cloudflareRouter;
+
+// Type-only used to silence the `StepResult` import when tree-shaken.
+export type { StepResult };
