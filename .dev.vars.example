@@ -10,6 +10,12 @@ RESEND_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # Admin email address (used during initial setup)
 ADMIN_EMAIL=admin@yourdomain.com
 
+# 256-bit AES-GCM key used to encrypt per-domain secrets (e.g. domain-scoped
+# Resend API keys) stored in D1. Generate with:
+#   openssl rand -base64 32
+# Rotating this will invalidate all previously-encrypted per-domain secrets.
+ENCRYPTION_KEY=
+
 # ── Cloudflare API Integration (optional) ──────────────────────────────
 # Enables one-click domain setup: auto-configures DNS, DKIM, Email Routing.
 # Create a token at: https://dash.cloudflare.com/profile/api-tokens

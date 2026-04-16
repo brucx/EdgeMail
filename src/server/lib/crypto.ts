@@ -86,6 +86,74 @@ export async function hashApiToken(token: string): Promise<string> {
   return bufToHex(new Uint8Array(hash));
 }
 
+// ─── Symmetric Encryption (AES-GCM) ─────────────────────────────────────────
+
+// Domain: encrypting per-domain secrets (e.g. Resend API keys) stored in D1.
+// The key-encryption-key (KEK) is a base64 32-byte value held in env.ENCRYPTION_KEY.
+// Ciphertext format: base64( iv (12B) || ciphertext || auth tag ).
+
+const AES_IV_LENGTH = 12;
+
+async function importAesKey(keyB64: string): Promise<CryptoKey> {
+  const raw = base64ToBytes(keyB64);
+  if (raw.length !== 32) {
+    throw new Error(
+      "ENCRYPTION_KEY must decode to 32 bytes (256-bit). Generate with: openssl rand -base64 32",
+    );
+  }
+  return crypto.subtle.importKey(
+    "raw",
+    raw as BufferSource,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+export async function encryptSecret(
+  plaintext: string,
+  keyB64: string,
+): Promise<string> {
+  const key = await importAesKey(keyB64);
+  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      new TextEncoder().encode(plaintext),
+    ),
+  );
+  const packed = new Uint8Array(iv.length + ct.length);
+  packed.set(iv, 0);
+  packed.set(ct, iv.length);
+  return bytesToBase64(packed);
+}
+
+export async function decryptSecret(
+  ciphertextB64: string,
+  keyB64: string,
+): Promise<string> {
+  const key = await importAesKey(keyB64);
+  const packed = base64ToBytes(ciphertextB64);
+  if (packed.length <= AES_IV_LENGTH) {
+    throw new Error("Ciphertext too short");
+  }
+  const iv = packed.slice(0, AES_IV_LENGTH);
+  const ct = packed.slice(AES_IV_LENGTH);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
+/**
+ * Short hint for display: "re_abc…wxyz". Never returns the full secret.
+ * Returns null for empty input.
+ */
+export function maskSecret(plaintext: string | null | undefined): string | null {
+  if (!plaintext) return null;
+  if (plaintext.length <= 8) return "****";
+  return `${plaintext.slice(0, 4)}…${plaintext.slice(-4)}`;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function bufToHex(buf: Uint8Array): string {
@@ -100,6 +168,19 @@ function hexToBuf(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 /**

@@ -17,6 +17,10 @@ export interface Env {
   RESEND_WEBHOOK_SECRET: string;
   ADMIN_EMAIL: string; // Used during setup to validate admin initialization
 
+  // 256-bit AES-GCM key (base64) used to encrypt per-domain secrets stored in D1.
+  // Generate with: openssl rand -base64 32
+  ENCRYPTION_KEY: string;
+
   // Cloudflare API integration (optional — feature disabled when absent)
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;

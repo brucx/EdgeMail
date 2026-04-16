@@ -51,6 +51,12 @@ export type CreateDomainInput = z.infer<typeof createDomainSchema>;
 
 export const updateDomainSchema = z.object({
   status: z.enum(["pending", "active", "disabled"]).optional(),
+  // Per-domain Resend API key. Pass a non-empty string to set/replace,
+  // pass null to clear (fall back to global RESEND_API_KEY).
+  // The key is encrypted at rest; the API never returns the plaintext.
+  resendApiKey: z
+    .union([z.string().min(10).startsWith("re_"), z.null()])
+    .optional(),
 });
 
 export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
@@ -62,6 +68,10 @@ export interface DomainInfo {
   mxVerified: boolean;
   cfZoneId: string | null;
   cfSetupStatus: "dns_created" | "routing_enabled" | "complete" | null;
+  // True if a per-domain Resend key is set (and will override the global key).
+  resendApiKeyConfigured: boolean;
+  // Short display hint like "re_abc…wxyz". null if no per-domain key.
+  resendApiKeyHint: string | null;
   createdAt: string;
 }
 

@@ -5,7 +5,19 @@ import type { Env, AppVariables } from "../env";
 import { domains, auditLogs } from "../db/schema";
 import { generateId } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
+import { encryptSecret, maskSecret } from "../lib/crypto";
 import { createDomainSchema, updateDomainSchema } from "@shared/types";
+
+/**
+ * Strip the encrypted `resendApiKey` ciphertext before sending a domain row
+ * to clients, and replace it with a boolean + display hint.
+ */
+function sanitizeDomain<T extends { resendApiKey: string | null; resendApiKeyHint: string | null }>(
+  row: T,
+): Omit<T, "resendApiKey"> & { resendApiKeyConfigured: boolean } {
+  const { resendApiKey, ...rest } = row;
+  return { ...rest, resendApiKeyConfigured: resendApiKey != null };
+}
 
 const domainsRouter = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -19,7 +31,7 @@ domainsRouter.use("/*", requireAuth);
 domainsRouter.get("/", async (c) => {
   const db = c.get("db");
   const result = await db.select().from(domains).orderBy(domains.createdAt);
-  return c.json({ data: result });
+  return c.json({ data: result.map(sanitizeDomain) });
 });
 
 /**
@@ -77,7 +89,10 @@ domainsRouter.post(
       .limit(1)
       .then((rows) => rows[0]);
 
-    return c.json({ data: created, message: "Domain created successfully" }, 201);
+    return c.json(
+      { data: sanitizeDomain(created!), message: "Domain created successfully" },
+      201,
+    );
   },
 );
 
@@ -118,7 +133,7 @@ domainsRouter.get("/:id", async (c) => {
     },
   };
 
-  return c.json({ data: { ...domain, dnsInstructions } });
+  return c.json({ data: { ...sanitizeDomain(domain), dnsInstructions } });
 });
 
 /**
@@ -138,7 +153,7 @@ domainsRouter.patch(
   async (c) => {
     const db = c.get("db");
     const { id } = c.req.param();
-    const updates = c.req.valid("json");
+    const { resendApiKey, ...rest } = c.req.valid("json");
 
     const existing = await db
       .select()
@@ -151,19 +166,42 @@ domainsRouter.patch(
       return c.json({ error: "Domain not found" }, 404);
     }
 
-    await db
-      .update(domains)
-      .set({ ...updates, updatedAt: new Date().toISOString() })
-      .where(eq(domains.id, id));
+    const patch: Record<string, unknown> = {
+      ...rest,
+      updatedAt: new Date().toISOString(),
+    };
 
-    // Audit log
+    if (resendApiKey !== undefined) {
+      if (resendApiKey === null) {
+        patch.resendApiKey = null;
+        patch.resendApiKeyHint = null;
+      } else {
+        if (!c.env.ENCRYPTION_KEY) {
+          return c.json(
+            { error: "ENCRYPTION_KEY is not configured on the server" },
+            500,
+          );
+        }
+        patch.resendApiKey = await encryptSecret(resendApiKey, c.env.ENCRYPTION_KEY);
+        patch.resendApiKeyHint = maskSecret(resendApiKey);
+      }
+    }
+
+    await db.update(domains).set(patch).where(eq(domains.id, id));
+
+    // Audit log — never include the plaintext key in the log.
     await db.insert(auditLogs).values({
       id: generateId(),
       userId: c.get("userId"),
       action: "domain.update",
       resourceType: "domain",
       resourceId: id,
-      details: JSON.stringify(updates),
+      details: JSON.stringify({
+        ...rest,
+        ...(resendApiKey !== undefined
+          ? { resendApiKey: resendApiKey === null ? "<cleared>" : "<updated>" }
+          : {}),
+      }),
     });
 
     const updated = await db
@@ -173,7 +211,10 @@ domainsRouter.patch(
       .limit(1)
       .then((rows) => rows[0]);
 
-    return c.json({ data: updated, message: "Domain updated successfully" });
+    return c.json({
+      data: sanitizeDomain(updated!),
+      message: "Domain updated successfully",
+    });
   },
 );
 

@@ -16,6 +16,12 @@ export const domains = sqliteTable("domains", {
   cfSetupStatus: text("cf_setup_status", {
     enum: ["dns_created", "routing_enabled", "complete"],
   }),
+  // AES-GCM ciphertext (base64) of a per-domain Resend API key.
+  // NULL = fall back to the global env.RESEND_API_KEY. The plaintext is never
+  // stored and never returned by the API.
+  resendApiKey: text("resend_api_key"),
+  // Last 4 chars of the plaintext key — used only for UI display hints.
+  resendApiKeyHint: text("resend_api_key_hint"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

@@ -109,6 +109,7 @@ npm run db:migrate:remote
 npx wrangler secret put RESEND_API_KEY
 npx wrangler secret put JWT_SECRET
 npx wrangler secret put RESEND_WEBHOOK_SECRET
+npx wrangler secret put ENCRYPTION_KEY   # openssl rand -base64 32
 
 # Deploy
 npm run deploy
@@ -202,9 +203,10 @@ EdgeMail/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `RESEND_API_KEY` | Resend API key for sending emails | Yes |
+| `RESEND_API_KEY` | Default Resend API key used when a domain has no per-domain override | Yes |
 | `JWT_SECRET` | Secret for signing session tokens | Yes |
 | `ADMIN_EMAIL` | Primary admin email for setup and notifications | Yes |
+| `ENCRYPTION_KEY` | Base64-encoded 32-byte AES-GCM key used to encrypt per-domain secrets stored in D1 (`openssl rand -base64 32`) | Yes |
 | `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret | For webhooks |
 | `APP_NAME` | Display name used by the health endpoint | No |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token for domain auto-setup and storage analytics | No |

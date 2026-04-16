@@ -177,6 +177,8 @@ const MIGRATION_STATEMENTS = [
 const ALTER_STATEMENTS = [
   `ALTER TABLE \`domains\` ADD COLUMN \`cf_zone_id\` text`,
   `ALTER TABLE \`domains\` ADD COLUMN \`cf_setup_status\` text`,
+  `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key\` text`,
+  `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key_hint\` text`,
 ];
 
 /**

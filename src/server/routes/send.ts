@@ -3,9 +3,17 @@ import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 import type { Env, AppVariables } from "../env";
-import { mailboxes, messages, messageRecipients, messageDeliveries, auditLogs } from "../db/schema";
+import {
+  mailboxes,
+  messages,
+  messageRecipients,
+  messageDeliveries,
+  auditLogs,
+  domains,
+} from "../db/schema";
 import { generateId } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
+import { decryptSecret } from "../lib/crypto";
 import { sendEmailSchema } from "@shared/types";
 
 const sendRouter = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -47,8 +55,47 @@ sendRouter.post(
       return c.json({ error: `Mailbox ${from} is not authorized to send emails` }, 403);
     }
 
-    // Send via Resend
-    const resend = new Resend(c.env.RESEND_API_KEY);
+    // Resolve Resend API key: per-domain override > global fallback.
+    let resendApiKey = c.env.RESEND_API_KEY;
+    const senderDomain = await db
+      .select()
+      .from(domains)
+      .where(eq(domains.id, senderMailbox.domainId))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (senderDomain?.resendApiKey) {
+      if (!c.env.ENCRYPTION_KEY) {
+        console.error(
+          "[EdgeMail] ENCRYPTION_KEY missing — cannot decrypt per-domain Resend key",
+        );
+        return c.json(
+          { error: "Server is misconfigured: ENCRYPTION_KEY is required to use per-domain Resend keys" },
+          500,
+        );
+      }
+      try {
+        resendApiKey = await decryptSecret(
+          senderDomain.resendApiKey,
+          c.env.ENCRYPTION_KEY,
+        );
+      } catch (err) {
+        console.error("[EdgeMail] Failed to decrypt domain Resend key:", err);
+        return c.json(
+          { error: "Failed to decrypt per-domain Resend key. Re-save it in the domain settings." },
+          500,
+        );
+      }
+    }
+
+    if (!resendApiKey) {
+      return c.json(
+        { error: "No Resend API key is configured for this domain or globally" },
+        500,
+      );
+    }
+
+    const resend = new Resend(resendApiKey);
 
     try {
       const result = await resend.emails.send({
