@@ -215,7 +215,6 @@ query D1Storage($accountTag: string!, $dateStart: Date!, $dateEnd: Date!, $datab
       d1AnalyticsAdaptiveGroups(
         filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }
         limit: 100
-        orderBy: [date_DESC]
       ) {
         dimensions {
           databaseId

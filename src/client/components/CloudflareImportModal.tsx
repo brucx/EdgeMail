@@ -66,7 +66,10 @@ export function CloudflareImportModal({
   // Stable view: only update when fetch settles, never during a fetch.
   // This prevents flicker when React Query resets status to 'pending' during refetch.
   const viewRef = useRef<ViewMode>("loading");
-  if (!isFetchingZones && fetchStatus === "idle") {
+  if (!open) {
+    // Reset to loading when modal is closed so re-opening shows the spinner
+    viewRef.current = "loading";
+  } else if (!isFetchingZones && fetchStatus === "idle") {
     if (zonesError) viewRef.current = "error";
     else if (!zonesData?.data?.length) viewRef.current = "empty";
     else viewRef.current = "list";
@@ -209,9 +212,9 @@ export function CloudflareImportModal({
 
         {/* Zone List View */}
         {!selectedZone && (
-          <div>
+          <div className="min-h-[120px]">
             {isInitialLoading && (
-              <div className="flex justify-center py-12">
+              <div className="flex min-h-[120px] items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
               </div>
             )}
@@ -263,7 +266,7 @@ export function CloudflareImportModal({
             )}
 
             {showNoDomains && (
-              <div className="flex flex-col items-center justify-center py-12">
+              <div className="flex min-h-[120px] flex-col items-center justify-center">
                 <Globe className="mb-3 h-10 w-10 text-[hsl(var(--outline))]" />
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">
                   No active domains found in your Cloudflare account.
