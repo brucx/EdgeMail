@@ -173,12 +173,26 @@ const MIGRATION_STATEMENTS = [
 /**
  * ALTER TABLE additions — wrapped in try/catch for idempotency.
  * SQLite errors on duplicate column names, so we silently ignore.
+ *
+ * IMPORTANT: only append to this list. Existing deployments rely on the
+ * additive-only behavior; reordering or removing entries will not re-run them.
  */
 const ALTER_STATEMENTS = [
   `ALTER TABLE \`domains\` ADD COLUMN \`cf_zone_id\` text`,
   `ALTER TABLE \`domains\` ADD COLUMN \`cf_setup_status\` text`,
   `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key\` text`,
   `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key_hint\` text`,
+  // P0-6: password hashing algorithm collar
+  `ALTER TABLE \`users\` ADD COLUMN \`password_algo\` text`,
+];
+
+/**
+ * Fresh indexes added after the initial schema. Declarative + IF NOT EXISTS
+ * so they are safe to run on every cold start.
+ */
+const POST_CREATE_STATEMENTS = [
+  `CREATE INDEX IF NOT EXISTS \`messages_created_at_idx\` ON \`messages\` (\`created_at\`)`,
+  `CREATE INDEX IF NOT EXISTS \`message_deliveries_mailbox_folder_idx\` ON \`message_deliveries\` (\`mailbox_id\`, \`folder\`)`,
 ];
 
 /**
@@ -188,6 +202,13 @@ const ALTER_STATEMENTS = [
 export async function ensureTablesExist(db: D1Database): Promise<void> {
   for (const sql of MIGRATION_STATEMENTS) {
     await db.prepare(sql).run();
+  }
+  for (const sql of POST_CREATE_STATEMENTS) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // Index already exists — ignore
+    }
   }
   for (const sql of ALTER_STATEMENTS) {
     try {

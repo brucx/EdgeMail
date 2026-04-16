@@ -13,8 +13,18 @@ ADMIN_EMAIL=admin@yourdomain.com
 # 256-bit AES-GCM key used to encrypt per-domain secrets (e.g. domain-scoped
 # Resend API keys) stored in D1. Generate with:
 #   openssl rand -base64 32
-# Rotating this will invalidate all previously-encrypted per-domain secrets.
 ENCRYPTION_KEY=
+
+# Previous ENCRYPTION_KEY, set during rotation. Ciphertexts written with the
+# old key keep decrypting until you re-save the affected secrets. Once
+# re-saved, unset this var.
+# ENCRYPTION_KEY_V1=
+
+# Retention thresholds (days). Messages older than SOFT are hidden from the
+# UI; messages older than HARD are deleted from D1 and R2 by the daily cron.
+# Defaults: 180 / 210.
+# RETENTION_SOFT_DELETE_DAYS=180
+# RETENTION_HARD_DELETE_DAYS=210
 
 # ── Cloudflare API Integration (optional) ──────────────────────────────
 # Enables one-click domain setup: auto-configures DNS, DKIM, Email Routing.

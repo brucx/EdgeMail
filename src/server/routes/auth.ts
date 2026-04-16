@@ -2,12 +2,15 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, ne } from "drizzle-orm";
 import { setCookie, deleteCookie } from "hono/cookie";
+import type { Context } from "hono";
 import type { Env, AppVariables } from "../env";
 import { users, sessions, auditLogs } from "../db/schema";
 import {
   verifyPassword,
   hashPassword,
   generateSessionToken,
+  CURRENT_PASSWORD_ALGO,
+  type PasswordAlgo,
 } from "../lib/crypto";
 import { generateId } from "../lib/id";
 import {
@@ -16,6 +19,8 @@ import {
   changePasswordSchema,
 } from "@shared/types";
 import { requireAuth } from "../middleware/auth";
+
+type AppContext = Context<{ Bindings: Env; Variables: AppVariables }>;
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 
@@ -37,9 +42,9 @@ auth.post(
   }),
   async (c) => {
     const db = c.get("db");
+    const log = c.get("logger");
     const { email, password } = c.req.valid("json");
 
-    // Find user by email
     const user = await db
       .select()
       .from(users)
@@ -51,52 +56,75 @@ auth.post(
       return c.json({ error: "Invalid email or password" }, 401);
     }
 
-    // Verify password
+    // Pick verification algorithm from the stored field, falling back to
+    // legacy HMAC for rows written before P0-6.
+    const algo = (user.passwordAlgo as PasswordAlgo | null) ?? "hmac-sha256-10k";
+
     let valid: boolean;
     try {
-      valid = await verifyPassword(password, user.passwordHash);
+      valid = await verifyPassword(password, user.passwordHash, algo);
     } catch (err) {
-      console.error("[EdgeMail] Password verification error:", err);
+      log.error("password verification threw", { err });
       return c.json({ error: "Internal error during authentication" }, 500);
     }
     if (!valid) {
       return c.json({ error: "Invalid email or password" }, 401);
     }
 
-    // Create session
-    const token = generateSessionToken();
-    const sessionId = generateId();
-    const expiresAt = new Date(
-      Date.now() + SESSION_MAX_AGE * 1000,
-    ).toISOString();
+    // Transparent password-hash upgrade: if the user is on the legacy algo,
+    // re-hash with the current one. Synchronous — cost is ~30ms.
+    if (algo !== CURRENT_PASSWORD_ALGO) {
+      const newHash = await hashPassword(password);
+      await db
+        .update(users)
+        .set({
+          passwordHash: newHash,
+          passwordAlgo: CURRENT_PASSWORD_ALGO,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(users.id, user.id));
+      log.info("password rehashed to current algo", { userId: user.id });
+    }
 
-    await db.insert(sessions).values({
-      id: sessionId,
-      userId: user.id,
-      token,
-      expiresAt,
-    });
-
-    // Set session cookie
-    setCookie(c, "session", token, {
-      httpOnly: true,
-      secure: c.req.url.startsWith("https://"),
-      sameSite: "Lax",
-      path: "/",
-      maxAge: SESSION_MAX_AGE,
-    });
-
-    return c.json({
-      data: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        role: user.role,
-      },
-      message: "Login successful",
-    });
+    return await issueSession(c, user.id, user.email, user.displayName, user.role);
   },
 );
+
+/**
+ * Internal helper: mint a session, set the cookie, and return the user JSON.
+ */
+export async function issueSession(
+  c: AppContext,
+  userId: string,
+  email: string,
+  displayName: string,
+  role: string,
+) {
+  const db = c.get("db");
+  const token = generateSessionToken();
+  const sessionId = generateId();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000).toISOString();
+
+  await db.insert(sessions).values({
+    id: sessionId,
+    userId,
+    token,
+    expiresAt,
+  });
+
+  setCookie(c, "session", token, {
+    httpOnly: true,
+    secure: c.req.url.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: SESSION_MAX_AGE,
+  });
+
+  return c.json({
+    data: { id: userId, email, displayName, role },
+    message: "Login successful",
+  });
+}
 
 /**
  * POST /api/auth/logout
@@ -119,8 +147,6 @@ auth.post("/logout", async (c) => {
 
 /**
  * GET /api/auth/me
- * Get the current authenticated user's info.
- * Returns 401 if not authenticated.
  */
 auth.get("/me", requireAuth, async (c) => {
   const db = c.get("db");
@@ -215,6 +241,7 @@ auth.post(
   }),
   async (c) => {
     const db = c.get("db");
+    const log = c.get("logger");
     const userId = c.get("userId")!;
     const sessionId = c.get("sessionId");
     const { currentPassword, newPassword } = c.req.valid("json");
@@ -237,11 +264,12 @@ auth.post(
       return c.json({ error: "User not found" }, 404);
     }
 
+    const algo = (user.passwordAlgo as PasswordAlgo | null) ?? "hmac-sha256-10k";
     let valid: boolean;
     try {
-      valid = await verifyPassword(currentPassword, user.passwordHash);
+      valid = await verifyPassword(currentPassword, user.passwordHash, algo);
     } catch (err) {
-      console.error("[EdgeMail] Password verification error:", err);
+      log.error("password verification threw", { err });
       return c.json({ error: "Internal error during authentication" }, 500);
     }
     if (!valid) {
@@ -252,7 +280,11 @@ auth.post(
 
     await db
       .update(users)
-      .set({ passwordHash: newHash, updatedAt: new Date().toISOString() })
+      .set({
+        passwordHash: newHash,
+        passwordAlgo: CURRENT_PASSWORD_ALGO,
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(users.id, userId));
 
     // Revoke this user's other sessions — force re-login elsewhere.

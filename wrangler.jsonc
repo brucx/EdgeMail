@@ -30,6 +30,18 @@
     }
   ],
 
+  // KV namespace for rate limiting (/api/send).
+  // Create with: wrangler kv namespace create edgemail-rate-limit
+  // Then paste the returned `id` into `id` below. The binding is optional at
+  // runtime — when missing, the rate limiter logs a warning and allows
+  // requests through (fail-open), so the Worker still boots without it.
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT_KV",
+      "id": "YOUR_KV_NAMESPACE_ID"
+    }
+  ],
+
   // NOTE: Email routing (catch-all) is configured in the Cloudflare dashboard,
   // not in wrangler.jsonc. Set up a catch-all rule pointing to this Worker
   // in your domain's Email Routing settings.

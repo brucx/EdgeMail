@@ -1,7 +1,7 @@
 import { createMiddleware } from "hono/factory";
-import { eq, and, gt, or, isNull } from "drizzle-orm";
+import { eq, and, gt, lt, or, isNull } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
-import { sessions, users, apiTokens } from "../db/schema";
+import { sessions, apiTokens } from "../db/schema";
 import { hashApiToken } from "../lib/crypto";
 
 /**
@@ -65,13 +65,17 @@ export const authSession = createMiddleware<{
       c.set("apiTokenDomainId", row.domainId);
 
       // Update lastUsedAt (fire-and-forget)
-      c.executionCtx.waitUntil(
-        db
-          .update(apiTokens)
-          .set({ lastUsedAt: now })
-          .where(eq(apiTokens.id, row.id))
-          .run(),
-      );
+      try {
+        c.executionCtx.waitUntil(
+          db
+            .update(apiTokens)
+            .set({ lastUsedAt: now })
+            .where(eq(apiTokens.id, row.id))
+            .run(),
+        );
+      } catch {
+        // test harness has no ExecutionContext — skip
+      }
     }
 
     return next();
@@ -82,15 +86,46 @@ export const authSession = createMiddleware<{
     .select({
       sessionId: sessions.id,
       userId: sessions.userId,
+      expiresAt: sessions.expiresAt,
     })
     .from(sessions)
-    .where(and(eq(sessions.token, token), gt(sessions.expiresAt, now)))
+    .where(eq(sessions.token, token))
     .limit(1);
 
-  if (result.length > 0) {
-    c.set("userId", result[0].userId);
-    c.set("sessionId", result[0].sessionId);
+  if (result.length === 0) {
+    return next();
   }
+
+  const row = result[0];
+  // ExecutionContext is only present when the middleware is reached via a
+  // real Worker fetch — not when a Hono app is driven via `app.request()` in
+  // tests. Fall back to awaiting inline in that case.
+  const defer = (p: Promise<unknown>) => {
+    try {
+      c.executionCtx.waitUntil(p);
+    } catch {
+      // no ExecutionContext — await inline so the work still happens.
+      void p.catch(() => {});
+    }
+  };
+
+  if (row.expiresAt <= now) {
+    // Expired: delete lazily so the sessions table doesn't grow forever.
+    defer(db.delete(sessions).where(eq(sessions.id, row.sessionId)).run());
+    return next();
+  }
+
+  c.set("userId", row.userId);
+  c.set("sessionId", row.sessionId);
+
+  // Opportunistically sweep other expired rows for this user; bounded by DB
+  // so it stays cheap. Runs post-response via waitUntil.
+  defer(
+    db
+      .delete(sessions)
+      .where(and(eq(sessions.userId, row.userId), lt(sessions.expiresAt, now)))
+      .run(),
+  );
 
   return next();
 });

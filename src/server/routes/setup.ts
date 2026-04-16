@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { eq, count } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import { users } from "../db/schema";
-import { hashPassword } from "../lib/crypto";
+import { hashPassword, CURRENT_PASSWORD_ALGO } from "../lib/crypto";
 import { generateId } from "../lib/id";
 import { setupSchema } from "@shared/types";
 
@@ -60,6 +60,7 @@ setup.post(
       id,
       email,
       passwordHash,
+      passwordAlgo: CURRENT_PASSWORD_ALGO,
       displayName,
       role: "admin",
     });

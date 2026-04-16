@@ -5,6 +5,7 @@ import { createDb } from "./db";
 import { ensureTablesExist } from "./db/migrate";
 import { authSession } from "./middleware/auth";
 import { handleInboundEmail } from "./services/email-inbound";
+import { createLogger, generateRequestId } from "./lib/logger";
 
 // Route modules
 import setup from "./routes/setup";
@@ -27,13 +28,31 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 // ─── Global Error Handler ──────────────────────────────────────────────────
 
 app.onError((err, c) => {
-  console.error("[EdgeMail] Unhandled error:", err.message, err.stack);
+  const log = c.get("logger") ?? createLogger({ component: "onError" });
+  log.error("unhandled request error", { err, path: c.req.path });
   return c.json({ error: "Internal Server Error", message: err.message }, 500);
 });
 
 // ─── Global Middleware ──────────────────────────────────────────────────────
 
 app.use("/*", cors());
+
+// Request-scoped logger + request id. Must run before any other middleware
+// that might want to log (including the auth middleware's lazy cleanups).
+app.use("/api/*", async (c, next) => {
+  const requestId = c.req.header("x-request-id") ?? generateRequestId();
+  c.set("requestId", requestId);
+  c.set(
+    "logger",
+    createLogger({
+      requestId,
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+    }),
+  );
+  c.header("x-request-id", requestId);
+  await next();
+});
 
 // Inject Drizzle DB instance + ensure schema is up to date
 app.use("/api/*", async (c, next) => {
@@ -85,8 +104,9 @@ export default {
   async email(
     message: ForwardableEmailMessage,
     env: Env,
-    ctx: ExecutionContext,
+    _ctx: ExecutionContext,
   ): Promise<void> {
+    await ensureTablesExist(env.DB);
     await handleInboundEmail(message, env);
   },
 };

@@ -1,50 +1,107 @@
 /**
- * Cryptographic utilities for password hashing and session tokens.
- * Uses Web Crypto API (available in Cloudflare Workers).
+ * Cryptographic utilities: password hashing, session tokens, symmetric secrets.
+ *
+ * Password hashing (two supported algorithms, selected per-user via
+ * `users.password_algo`):
+ *   - "pbkdf2-sha256-310k" — current default, OWASP 2024 recommendation.
+ *     ~30–60ms per verify on Cloudflare Workers, fine under Worker CPU limits.
+ *   - "hmac-sha256-10k" — legacy. Retained only to verify existing accounts
+ *     created before P0-6. On successful verify we auto-upgrade the stored
+ *     hash to the new algorithm during login (see routes/auth.ts).
+ *
+ * Symmetric encryption of per-domain secrets (AES-GCM) supports multi-version
+ * keys via a ciphertext prefix ("v1:", "v2:", …). When ENCRYPTION_KEY rotates,
+ * you set ENCRYPTION_KEY_V1 to the old key; decryptSecret transparently picks
+ * the right KEK based on the ciphertext version. Encryption always uses the
+ * current (unprefixed env) key and emits the current version prefix.
+ *
+ * Legacy ciphertexts written before multi-version support (no prefix) are
+ * treated as version "v0" and decrypt against the current ENCRYPTION_KEY.
  */
 
-const PBKDF2_ITERATIONS = 10_000;
+// ─── Constants ──────────────────────────────────────────────────────────────
+
 const SALT_LENGTH = 16;
-const KEY_LENGTH = 32;
+const PBKDF2_ITERATIONS = 310_000; // OWASP 2024 for PBKDF2-SHA256
+const HMAC_ITERATIONS = 10_000; // legacy only
+const KEY_BITS = 256;
+
+export type PasswordAlgo = "pbkdf2-sha256-310k" | "hmac-sha256-10k";
+export const CURRENT_PASSWORD_ALGO: PasswordAlgo = "pbkdf2-sha256-310k";
+
+// ─── Password Hashing ───────────────────────────────────────────────────────
 
 /**
- * Hash a password using PBKDF2-SHA256.
- * Returns a string in the format: `salt:hash` (both hex-encoded).
+ * Hash a password with the current default algorithm (PBKDF2-SHA256, 310k).
+ * Returns `salt:hash` in hex.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-  const hash = await deriveHmac(password, salt);
-  const hashHex = bufToHex(new Uint8Array(hash));
-  const saltHex = bufToHex(salt);
-  return `${saltHex}:${hashHex}`;
+  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
+  return `${bufToHex(salt)}:${bufToHex(new Uint8Array(hash))}`;
 }
 
 /**
- * Verify a password against a stored hash.
+ * Verify a password against a stored hash. Picks the algorithm based on
+ * `algo`; defaults to the legacy HMAC algorithm when `algo` is undefined to
+ * match data written before P0-6.
  */
 export async function verifyPassword(
   password: string,
   storedHash: string,
+  algo: PasswordAlgo = "hmac-sha256-10k",
 ): Promise<boolean> {
   const parts = storedHash.split(":");
   if (parts.length !== 2) return false;
-  const [saltHex, expectedHashHex] = parts;
-  if (!saltHex || !expectedHashHex) return false;
+  const [saltHex, expectedHex] = parts;
+  if (!saltHex || !expectedHex) return false;
 
   const salt = hexToBuf(saltHex);
-  const hash = await deriveHmac(password, salt);
-  const hashHex = bufToHex(new Uint8Array(hash));
-  return timingSafeEqual(hashHex, expectedHashHex);
+  let actual: ArrayBuffer;
+  if (algo === "pbkdf2-sha256-310k") {
+    actual = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
+  } else {
+    actual = await hmacDerive(password, salt, HMAC_ITERATIONS);
+  }
+  return timingSafeEqual(bufToHex(new Uint8Array(actual)), expectedHex);
 }
 
 /**
- * HMAC-SHA256 key derivation helper.
- * Used instead of PBKDF2 because Miniflare's local workerd environment crashes
- * due to CPU time limits on deriveBits with PBKDF2 when testing wrong passwords.
+ * PBKDF2-SHA256 key derivation. Fine on Cloudflare Workers at 310k iterations.
  */
-async function deriveHmac(
+async function pbkdf2(
   password: string,
   salt: Uint8Array,
+  iterations: number,
+): Promise<ArrayBuffer> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  return crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: salt as BufferSource,
+      iterations,
+    },
+    keyMaterial,
+    KEY_BITS,
+  );
+}
+
+/**
+ * Legacy HMAC-SHA256 iterated key derivation. Kept purely so existing
+ * accounts can still log in; new hashes always use PBKDF2.
+ */
+async function hmacDerive(
+  password: string,
+  salt: Uint8Array,
+  iterations: number,
 ): Promise<ArrayBuffer> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -54,45 +111,48 @@ async function deriveHmac(
     false,
     ["sign"],
   );
-
-  return crypto.subtle.sign("HMAC", keyMaterial, salt);
+  // First round seeds from the salt; subsequent rounds chain the previous
+  // digest. This mirrors the pre-P0-6 behavior for exact hash compatibility.
+  let buf = await crypto.subtle.sign(
+    "HMAC",
+    keyMaterial,
+    salt as BufferSource,
+  );
+  for (let i = 1; i < iterations; i++) {
+    buf = await crypto.subtle.sign("HMAC", keyMaterial, buf);
+  }
+  return buf;
 }
 
-/**
- * Generate a cryptographically secure session token (64 hex chars).
- */
+// ─── Session & API Tokens ───────────────────────────────────────────────────
+
 export function generateSessionToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return bufToHex(bytes);
+  return bufToHex(crypto.getRandomValues(new Uint8Array(32)));
 }
 
-// ─── API Token Helpers ──────────────────────────────────────────────────────
-
-/**
- * Generate a new API token: "em_sk_" + 48 random hex chars.
- */
 export function generateApiToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  return `em_sk_${bufToHex(bytes)}`;
+  return `em_sk_${bufToHex(crypto.getRandomValues(new Uint8Array(24)))}`;
 }
 
-/**
- * SHA-256 hash of a full API token string, returned as hex.
- */
 export async function hashApiToken(token: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(token);
-  const hash = await crypto.subtle.digest("SHA-256", data.buffer);
-  return bufToHex(new Uint8Array(hash));
+  const data = new TextEncoder().encode(token);
+  const digest = await crypto.subtle.digest("SHA-256", data.buffer);
+  return bufToHex(new Uint8Array(digest));
 }
 
-// ─── Symmetric Encryption (AES-GCM) ─────────────────────────────────────────
-
-// Domain: encrypting per-domain secrets (e.g. Resend API keys) stored in D1.
-// The key-encryption-key (KEK) is a base64 32-byte value held in env.ENCRYPTION_KEY.
-// Ciphertext format: base64( iv (12B) || ciphertext || auth tag ).
+// ─── Symmetric Encryption (AES-GCM, multi-version KEK) ──────────────────────
 
 const AES_IV_LENGTH = 12;
+const CURRENT_KEY_VERSION = "v1"; // bumps when ENCRYPTION_KEY rotates
+
+/**
+ * Minimal env shape used for key-rotation lookups. Passing the whole Env is
+ * convenient at call sites; only the two key fields are ever read.
+ */
+export interface EncryptionEnv {
+  ENCRYPTION_KEY: string;
+  ENCRYPTION_KEY_V1?: string; // previous KEK during rotation
+}
 
 async function importAesKey(keyB64: string): Promise<CryptoKey> {
   const raw = base64ToBytes(keyB64);
@@ -110,6 +170,10 @@ async function importAesKey(keyB64: string): Promise<CryptoKey> {
   );
 }
 
+/**
+ * Encrypt a secret with the current KEK; ciphertext is prefixed with the
+ * version tag so future reads can find the right key.
+ */
 export async function encryptSecret(
   plaintext: string,
   keyB64: string,
@@ -126,27 +190,51 @@ export async function encryptSecret(
   const packed = new Uint8Array(iv.length + ct.length);
   packed.set(iv, 0);
   packed.set(ct, iv.length);
-  return bytesToBase64(packed);
+  return `${CURRENT_KEY_VERSION}:${bytesToBase64(packed)}`;
 }
 
+/**
+ * Decrypt a secret. Picks KEK by version prefix:
+ *   "v1:…" → env.ENCRYPTION_KEY (current)
+ *   no prefix → legacy (pre-rotation) → env.ENCRYPTION_KEY (best-effort)
+ *   any other "vX:" → env.ENCRYPTION_KEY_V1 fallback
+ */
 export async function decryptSecret(
-  ciphertextB64: string,
-  keyB64: string,
+  stored: string,
+  env: EncryptionEnv,
 ): Promise<string> {
-  const key = await importAesKey(keyB64);
-  const packed = base64ToBytes(ciphertextB64);
-  if (packed.length <= AES_IV_LENGTH) {
-    throw new Error("Ciphertext too short");
+  const { version, payload } = parseVersioned(stored);
+  const keyB64 = pickKey(version, env);
+  if (!keyB64) {
+    throw new Error(
+      `No KEK available for ciphertext version "${version}". Set ENCRYPTION_KEY_V1 to the previous key and retry.`,
+    );
   }
+  const key = await importAesKey(keyB64);
+  const packed = base64ToBytes(payload);
+  if (packed.length <= AES_IV_LENGTH) throw new Error("Ciphertext too short");
   const iv = packed.slice(0, AES_IV_LENGTH);
   const ct = packed.slice(AES_IV_LENGTH);
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
   return new TextDecoder().decode(pt);
 }
 
+function parseVersioned(s: string): { version: string; payload: string } {
+  const m = /^(v\d+):(.+)$/.exec(s);
+  if (m) return { version: m[1], payload: m[2] };
+  return { version: "v0", payload: s }; // legacy, unversioned
+}
+
+function pickKey(version: string, env: EncryptionEnv): string | undefined {
+  if (version === CURRENT_KEY_VERSION || version === "v0") {
+    return env.ENCRYPTION_KEY;
+  }
+  // Any prior version — try the rotation fallback first.
+  return env.ENCRYPTION_KEY_V1 || env.ENCRYPTION_KEY;
+}
+
 /**
- * Short hint for display: "re_abc…wxyz". Never returns the full secret.
- * Returns null for empty input.
+ * Short display hint for a secret: "re_a…wxyz". Never returns the full value.
  */
 export function maskSecret(plaintext: string | null | undefined): string | null {
   if (!plaintext) return null;
@@ -183,9 +271,6 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/**
- * Constant-time string comparison to prevent timing attacks.
- */
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;

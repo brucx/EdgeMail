@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, desc, like, sql, count, or } from "drizzle-orm";
+import { eq, and, desc, like, count, or } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   messages,
@@ -8,6 +8,7 @@ import {
   attachments,
 } from "../db/schema";
 import { requireAuth } from "../middleware/auth";
+import { sanitizeHtml } from "../lib/html-sanitize";
 
 const messagesRouter = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -32,13 +33,11 @@ messagesRouter.get("/", async (c) => {
 
   const offset = (page - 1) * limit;
 
-  // Build conditions
   const conditions = [
     eq(messageDeliveries.mailboxId, mailboxId),
     eq(messageDeliveries.folder, folder),
   ];
 
-  // Apply search filter at the SQL level for accurate results across all pages
   if (search) {
     const pattern = `%${search}%`;
     conditions.push(
@@ -50,7 +49,6 @@ messagesRouter.get("/", async (c) => {
     );
   }
 
-  // Base query: messages joined with deliveries
   const baseQuery = db
     .select({
       id: messages.id,
@@ -70,7 +68,6 @@ messagesRouter.get("/", async (c) => {
 
   const data = await baseQuery;
 
-  // Augment with hasAttachments for each message
   const result = await Promise.all(
     data.map(async (msg) => {
       const attCount = await db
@@ -91,7 +88,6 @@ messagesRouter.get("/", async (c) => {
     }),
   );
 
-  // Get total count (shares the same conditions including search)
   const totalResult = await db
     .select({ value: count() })
     .from(messageDeliveries)
@@ -121,7 +117,6 @@ messagesRouter.get("/:id", async (c) => {
     return c.json({ error: "Message not found" }, 404);
   }
 
-  // Get recipients
   const recipients = await db
     .select({
       address: messageRecipients.address,
@@ -130,7 +125,6 @@ messagesRouter.get("/:id", async (c) => {
     .from(messageRecipients)
     .where(eq(messageRecipients.messageId, id));
 
-  // Get attachments
   const atts = await db
     .select({
       id: attachments.id,
@@ -141,13 +135,16 @@ messagesRouter.get("/:id", async (c) => {
     .from(attachments)
     .where(eq(attachments.messageId, id));
 
-  // Get read status from delivery (if applicable)
   const delivery = await db
     .select({ isRead: messageDeliveries.isRead })
     .from(messageDeliveries)
     .where(eq(messageDeliveries.messageId, id))
     .limit(1)
     .then((rows) => rows[0]);
+
+  // Belt-and-braces: sanitize on read even though inbound already did so,
+  // so messages written before P0-4 are still safe to render.
+  const safeHtml = await sanitizeHtml(message.htmlBody);
 
   return c.json({
     data: {
@@ -156,7 +153,7 @@ messagesRouter.get("/:id", async (c) => {
       fromName: message.fromName,
       subject: message.subject,
       textBody: message.textBody,
-      htmlBody: message.htmlBody,
+      htmlBody: safeHtml,
       isRead: delivery?.isRead ?? false,
       hasAttachments: atts.length > 0,
       createdAt: message.createdAt,
@@ -176,7 +173,6 @@ messagesRouter.patch("/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json<{ isRead?: boolean; mailboxId?: string }>();
 
-  // Find the delivery record
   const conditions = [eq(messageDeliveries.messageId, id)];
   if (body.mailboxId) {
     conditions.push(eq(messageDeliveries.mailboxId, body.mailboxId));
@@ -211,7 +207,6 @@ messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
   const db = c.get("db");
   const { id, attachmentId } = c.req.param();
 
-  // Find the attachment
   const attachment = await db
     .select()
     .from(attachments)
@@ -228,7 +223,6 @@ messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
     return c.json({ error: "Attachment not found" }, 404);
   }
 
-  // Stream from R2
   const object = await c.env.STORAGE.get(attachment.r2Key);
 
   if (!object) {
