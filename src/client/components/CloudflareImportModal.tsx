@@ -38,6 +38,106 @@ const SETUP_STEPS: SetupStep[] = [
 
 type ViewMode = "loading" | "error" | "empty" | "list";
 
+type MxProviderClassification = {
+  provider: string;
+  /**
+   * true  → these MX records deliver real inbound user email; replacing
+   *         them will redirect mailboxes to EdgeMail.
+   * false → these MX records only receive bounce/complaint feedback from a
+   *         sending provider (e.g. Resend/SES) and do not carry user mail.
+   */
+  receivesUserMail: boolean;
+  impact: string;
+};
+
+/**
+ * Identify the email provider behind the existing apex MX records so we can
+ * describe the real impact of setup to the user, instead of a generic
+ * "this domain receives email" warning that is misleading for sender-only
+ * providers like Resend.
+ */
+function classifyMxProvider(
+  mxRecords: string[],
+): MxProviderClassification | null {
+  if (mxRecords.length === 0) return null;
+  const joined = mxRecords.join(" ").toLowerCase();
+
+  if (joined.includes("feedback-smtp") && joined.includes("amazonses.com")) {
+    return {
+      provider: "Resend / Amazon SES (bounce feedback)",
+      receivesUserMail: false,
+      impact:
+        "These MX records only accept bounce & complaint feedback from your sending provider — they do not deliver inbound user email. Outbound sending via Resend/SES API will keep working after setup; webhook-based bounce handling is unaffected.",
+    };
+  }
+  if (joined.includes("mail.protection.outlook.com")) {
+    return {
+      provider: "Microsoft 365 / Exchange Online",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently lands in Microsoft 365 mailboxes. Completing setup will redirect all incoming mail to EdgeMail and users will stop receiving mail in Outlook until you migrate back.",
+    };
+  }
+  if (
+    joined.includes("aspmx.l.google.com") ||
+    joined.includes("googlemail.com") ||
+    joined.includes("google.com")
+  ) {
+    return {
+      provider: "Google Workspace (Gmail)",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently lands in Google Workspace mailboxes. Completing setup will redirect all incoming mail to EdgeMail and users will stop receiving mail in Gmail until you migrate back.",
+    };
+  }
+  if (joined.includes("mailgun.org")) {
+    return {
+      provider: "Mailgun",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently routes through Mailgun. Completing setup will redirect inbound mail to EdgeMail; Mailgun sending via API is unaffected.",
+    };
+  }
+  if (joined.includes("sendgrid.net")) {
+    return {
+      provider: "SendGrid Inbound Parse",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently routes through SendGrid. Completing setup will redirect inbound mail to EdgeMail; SendGrid sending via API is unaffected.",
+    };
+  }
+  if (joined.includes("zoho.com")) {
+    return {
+      provider: "Zoho Mail",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently lands in Zoho Mail. Completing setup will redirect all incoming mail to EdgeMail.",
+    };
+  }
+  if (joined.includes("protonmail") || joined.includes("proton.me")) {
+    return {
+      provider: "Proton Mail",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently lands in Proton Mail. Completing setup will redirect all incoming mail to EdgeMail.",
+    };
+  }
+  if (joined.includes("messagingengine.com")) {
+    return {
+      provider: "Fastmail",
+      receivesUserMail: true,
+      impact:
+        "Inbound email currently lands in Fastmail. Completing setup will redirect all incoming mail to EdgeMail.",
+    };
+  }
+  return {
+    provider: "another mail provider",
+    receivesUserMail: true,
+    impact:
+      "These records currently direct inbound mail to an external provider. Completing setup will redirect all incoming mail to EdgeMail.",
+  };
+}
+
 export function CloudflareImportModal({
   open,
   onClose,
@@ -295,33 +395,58 @@ export function CloudflareImportModal({
                         </button>
                       )}
                     </div>
-                    {/* MX warning for domains with existing non-Cloudflare MX records */}
-                    {!zone.linked && zone.existingMxRecords.length > 0 && (
-                      <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
-                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-                        <div>
-                          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                            Existing MX records detected
-                          </p>
-                          <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
-                            This domain already receives email via:
-                          </p>
-                          <ul className="mt-1 space-y-0.5">
-                            {zone.existingMxRecords.map((r, i) => (
-                              <li
-                                key={i}
-                                className="font-[family-name:var(--font-mono)] text-xs text-amber-700 dark:text-amber-400"
-                              >
-                                {r}
-                              </li>
-                            ))}
-                          </ul>
-                          <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-                            Setting up EdgeMail will replace these records.
-                          </p>
+                    {/* MX warning for apex-level non-Cloudflare MX records */}
+                    {!zone.linked && zone.existingMxRecords.length > 0 && (() => {
+                      const classification = classifyMxProvider(
+                        zone.existingMxRecords,
+                      );
+                      const isFeedbackOnly =
+                        classification?.receivesUserMail === false;
+                      const toneClass = isFeedbackOnly
+                        ? "bg-sky-50 dark:bg-sky-950/30"
+                        : "bg-amber-50 dark:bg-amber-950/30";
+                      const iconClass = isFeedbackOnly
+                        ? "text-sky-600"
+                        : "text-amber-600";
+                      const titleClass = isFeedbackOnly
+                        ? "text-sky-800 dark:text-sky-300"
+                        : "text-amber-800 dark:text-amber-300";
+                      const bodyClass = isFeedbackOnly
+                        ? "text-sky-700 dark:text-sky-400"
+                        : "text-amber-700 dark:text-amber-400";
+                      const footClass = isFeedbackOnly
+                        ? "text-sky-600 dark:text-sky-500"
+                        : "text-amber-600 dark:text-amber-500";
+                      return (
+                        <div className={`mt-2 flex items-start gap-2 rounded-lg px-3 py-2 ${toneClass}`}>
+                          <AlertCircle className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${iconClass}`} />
+                          <div>
+                            <p className={`text-xs font-medium ${titleClass}`}>
+                              {classification
+                                ? `Existing apex MX: ${classification.provider}`
+                                : "Existing MX records detected"}
+                            </p>
+                            <p className={`mt-0.5 text-xs ${bodyClass}`}>
+                              Apex MX records currently configured on this zone:
+                            </p>
+                            <ul className="mt-1 space-y-0.5">
+                              {zone.existingMxRecords.map((r, i) => (
+                                <li
+                                  key={i}
+                                  className={`font-[family-name:var(--font-mono)] text-xs ${bodyClass}`}
+                                >
+                                  {r}
+                                </li>
+                              ))}
+                            </ul>
+                            <p className={`mt-1 text-xs ${footClass}`}>
+                              {classification?.impact ??
+                                "Setting up EdgeMail will replace these records with Cloudflare Email Routing MX."}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -333,49 +458,72 @@ export function CloudflareImportModal({
         {selectedZone && (
           <div>
             {/* Conflict Warning */}
-            {conflictWarning && (
-              <div className="mb-4 rounded-xl bg-amber-50 p-4 dark:bg-amber-950/30">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                      Existing MX records found
-                    </p>
-                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                      The following records will be replaced:
-                    </p>
-                    <ul className="mt-1 space-y-0.5">
-                      {conflictWarning.map((r, i) => (
-                        <li
-                          key={i}
-                          className="font-[family-name:var(--font-mono)] text-xs text-amber-700 dark:text-amber-400"
+            {conflictWarning && (() => {
+              const classification = classifyMxProvider(conflictWarning);
+              const isFeedbackOnly =
+                classification?.receivesUserMail === false;
+              const title = classification
+                ? `Replacing apex MX (${classification.provider})`
+                : "Existing MX records found";
+              return (
+                <div className="mb-4 rounded-xl bg-amber-50 p-4 dark:bg-amber-950/30">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        {title}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                        These apex MX records will be deleted and replaced with Cloudflare Email Routing MX:
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {conflictWarning.map((r, i) => (
+                          <li
+                            key={i}
+                            className="font-[family-name:var(--font-mono)] text-xs text-amber-700 dark:text-amber-400"
+                          >
+                            {r}
+                          </li>
+                        ))}
+                      </ul>
+                      {classification && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                          {classification.impact}
+                        </p>
+                      )}
+                      {!isFeedbackOnly && (
+                        <p className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-300">
+                          Make sure you have migrated any mailboxes off this provider before continuing.
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
+                        Note: only apex MX records are touched — subdomain MX (e.g.{" "}
+                        <code className="font-[family-name:var(--font-mono)]">send.&lt;domain&gt;</code>{" "}
+                        used by sending providers) stays intact.
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => handleSetup(selectedZone, true)}
+                          className="rounded-lg gradient-primary px-3 py-1.5 text-xs font-semibold text-white"
                         >
-                          {r}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={() => handleSetup(selectedZone, true)}
-                        className="rounded-lg gradient-primary px-3 py-1.5 text-xs font-semibold text-white"
-                      >
-                        Replace & Continue
-                      </button>
-                      <button
-                        onClick={() => {
-                          setConflictWarning(null);
-                          setSelectedZone(null);
-                          setupMutation.reset();
-                        }}
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]"
-                      >
-                        Cancel
-                      </button>
+                          Replace & Continue
+                        </button>
+                        <button
+                          onClick={() => {
+                            setConflictWarning(null);
+                            setSelectedZone(null);
+                            setupMutation.reset();
+                          }}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Step Progress */}
             {!conflictWarning && (

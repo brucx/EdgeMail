@@ -117,11 +117,15 @@ cloudflareRouter.get("/zones", async (c) => {
             `/zones/${zone.id}/dns_records?type=MX`,
           );
           const mxRecords = mxResult.result as Array<{
+            name: string;
             content: string;
             priority: number;
           }>;
-          // Flag non-Cloudflare MX records
+          // Flag non-Cloudflare MX records AT THE APEX ONLY. Subdomain MX
+          // (e.g. `send.<zone>` for Resend/SES bounce feedback) is not
+          // touched by EdgeMail setup and must not be reported as a conflict.
           base.existingMxRecords = mxRecords
+            .filter((r) => r.name === zone.name)
             .filter((r) => !r.content.includes("mx.cloudflare.net"))
             .map((r) => `${r.priority} ${r.content}`);
         } catch {
@@ -214,10 +218,16 @@ cloudflareRouter.post(
           token,
           `/zones/${zoneId}/dns_records?type=MX`,
         );
-        const mxRecords = existingDns.result as Array<{
+        const allMxRecords = existingDns.result as Array<{
           id: string;
+          name: string;
           content: string;
         }>;
+
+        // Scope to apex MX only — subdomain MX (e.g. `send.<zone>` used by
+        // Resend/SES for bounce feedback) is unrelated to EdgeMail routing
+        // and must not be detected as a conflict or deleted.
+        const mxRecords = allMxRecords.filter((r) => r.name === domainName);
 
         const hasConflicting = mxRecords.some(
           (r) => !r.content.includes("mx.cloudflare.net"),
