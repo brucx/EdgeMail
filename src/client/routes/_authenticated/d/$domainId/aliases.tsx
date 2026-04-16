@@ -176,7 +176,7 @@ function AliasesPage() {
 
         {isLoading && (
           <div className="flex justify-center py-24">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent text-[hsl(var(--primary))]" />
           </div>
         )}
 

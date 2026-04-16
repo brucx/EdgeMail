@@ -215,7 +215,7 @@ export function CloudflareImportModal({
           <div className="min-h-[120px]">
             {isInitialLoading && (
               <div className="flex min-h-[120px] items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
+                <Loader2 className="h-8 w-8 animate-spin text-[hsl(var(--primary))]" />
               </div>
             )}
 
@@ -276,7 +276,7 @@ export function CloudflareImportModal({
 
             {showList && (
               <div className="max-h-80 space-y-2 overflow-y-auto custom-scrollbar">
-                {zonesData.data.map((zone) => (
+                {zonesData!.data.map((zone) => (
                   <div
                     key={zone.id}
                     className="rounded-xl bg-[hsl(var(--accent))] p-3 transition-colors hover:bg-[hsl(var(--input))]"
