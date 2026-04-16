@@ -4,7 +4,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { setCookie, deleteCookie } from "hono/cookie";
 import type { Context } from "hono";
 import type { Env, AppVariables } from "../env";
-import { users, sessions, auditLogs } from "../db/schema";
+import { users, sessions, auditLogs, pending2fa } from "../db/schema";
 import {
   verifyPassword,
   hashPassword,
@@ -23,12 +23,15 @@ import { requireAuth } from "../middleware/auth";
 type AppContext = Context<{ Bindings: Env; Variables: AppVariables }>;
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
+const PENDING_2FA_TTL_SEC = 60 * 5; // 5 minutes
 
 const auth = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 /**
  * POST /api/auth/login
- * Authenticate with email + password, create session, set cookie.
+ * Authenticate with email + password. If the account has TOTP enabled,
+ * returns `{ data: { requires2fa: true, challengeId } }` and the client
+ * must follow up with POST /api/auth/2fa/verify.
  */
 auth.post(
   "/login",
@@ -72,7 +75,8 @@ auth.post(
     }
 
     // Transparent password-hash upgrade: if the user is on the legacy algo,
-    // re-hash with the current one. Synchronous — cost is ~30ms.
+    // re-hash with the current one. Fire-and-forget is tempting but doing it
+    // synchronously keeps a simpler mental model and the cost is ~30ms.
     if (algo !== CURRENT_PASSWORD_ALGO) {
       const newHash = await hashPassword(password);
       await db
@@ -86,12 +90,32 @@ auth.post(
       log.info("password rehashed to current algo", { userId: user.id });
     }
 
+    // 2FA gate: issue a short-lived pending challenge instead of a session.
+    if (user.totpEnabled) {
+      const challengeId = generateId();
+      const expiresAt = new Date(Date.now() + PENDING_2FA_TTL_SEC * 1000).toISOString();
+      await db.insert(pending2fa).values({
+        id: challengeId,
+        userId: user.id,
+        expiresAt,
+      });
+      return c.json({
+        data: {
+          requires2fa: true,
+          challengeId,
+          expiresIn: PENDING_2FA_TTL_SEC,
+        },
+        message: "2FA verification required",
+      });
+    }
+
     return await issueSession(c, user.id, user.email, user.displayName, user.role);
   },
 );
 
 /**
  * Internal helper: mint a session, set the cookie, and return the user JSON.
+ * Also used by the 2FA verify endpoint once the second factor succeeds.
  */
 export async function issueSession(
   c: AppContext,
@@ -147,6 +171,8 @@ auth.post("/logout", async (c) => {
 
 /**
  * GET /api/auth/me
+ * Get the current authenticated user's info.
+ * Returns 401 if not authenticated.
  */
 auth.get("/me", requireAuth, async (c) => {
   const db = c.get("db");
@@ -158,6 +184,7 @@ auth.get("/me", requireAuth, async (c) => {
       email: users.email,
       displayName: users.displayName,
       role: users.role,
+      totpEnabled: users.totpEnabled,
       createdAt: users.createdAt,
     })
     .from(users)

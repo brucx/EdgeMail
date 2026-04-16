@@ -184,18 +184,35 @@ const ALTER_STATEMENTS = [
   `ALTER TABLE \`domains\` ADD COLUMN \`resend_api_key_hint\` text`,
   // P0-6: password hashing algorithm collar
   `ALTER TABLE \`users\` ADD COLUMN \`password_algo\` text`,
+  // P2-4: TOTP second factor
+  `ALTER TABLE \`users\` ADD COLUMN \`totp_enabled\` integer DEFAULT 0 NOT NULL`,
+  `ALTER TABLE \`users\` ADD COLUMN \`totp_secret_enc\` text`,
+  `ALTER TABLE \`users\` ADD COLUMN \`backup_codes_enc\` text`,
   // P1-3: outbound delivery tracking via Resend webhook
   `ALTER TABLE \`messages\` ADD COLUMN \`delivery_status\` text`,
   `ALTER TABLE \`messages\` ADD COLUMN \`delivery_error\` text`,
   `ALTER TABLE \`messages\` ADD COLUMN \`delivery_updated_at\` text`,
+  // P2-2: retention soft-delete marker
+  `ALTER TABLE \`messages\` ADD COLUMN \`deleted_at\` text`,
 ];
 
 /**
- * Fresh indexes added after the initial schema. Declarative + IF NOT EXISTS
- * so they are safe to run on every cold start.
+ * Fresh-table CREATE statements added after the initial schema. Unlike
+ * ALTER_STATEMENTS, these are declarative and use IF NOT EXISTS so they are
+ * safe to run on every cold start.
  */
 const POST_CREATE_STATEMENTS = [
+  // P2-4: pending 2FA challenges between password verify and TOTP verify
+  `CREATE TABLE IF NOT EXISTS \`pending_2fa\` (
+    \`id\` text PRIMARY KEY NOT NULL,
+    \`user_id\` text NOT NULL,
+    \`expires_at\` text NOT NULL,
+    \`created_at\` text DEFAULT (datetime('now')) NOT NULL,
+    FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON UPDATE no action ON DELETE cascade
+  )`,
+  // Performance indexes
   `CREATE INDEX IF NOT EXISTS \`messages_created_at_idx\` ON \`messages\` (\`created_at\`)`,
+  `CREATE INDEX IF NOT EXISTS \`messages_deleted_at_idx\` ON \`messages\` (\`deleted_at\`)`,
   `CREATE INDEX IF NOT EXISTS \`message_deliveries_mailbox_folder_idx\` ON \`message_deliveries\` (\`mailbox_id\`, \`folder\`)`,
 ];
 
@@ -211,7 +228,7 @@ export async function ensureTablesExist(db: D1Database): Promise<void> {
     try {
       await db.prepare(sql).run();
     } catch {
-      // Index already exists — ignore
+      // Table/index already exists — ignore
     }
   }
   for (const sql of ALTER_STATEMENTS) {

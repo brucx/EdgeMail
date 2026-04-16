@@ -33,6 +33,10 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CF_WORKER_NAME?: string; // defaults to "edgemail"
 
+  // Retention (days). Optional — when absent the retention cron is a no-op.
+  RETENTION_SOFT_DELETE_DAYS?: string; // default: "180"
+  RETENTION_HARD_DELETE_DAYS?: string; // default: "210"
+
   // Non-secret vars (set in wrangler.jsonc)
   APP_NAME: string;
   D1_DATABASE_ID?: string;

@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { eq, and, desc, like, count, or } from "drizzle-orm";
+import { eq, and, desc, like, count, or, isNull } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   messages,
   messageRecipients,
   messageDeliveries,
   attachments,
+  mailboxes,
 } from "../db/schema";
 import { requireAuth } from "../middleware/auth";
 import { sanitizeHtml } from "../lib/html-sanitize";
@@ -33,9 +34,11 @@ messagesRouter.get("/", async (c) => {
 
   const offset = (page - 1) * limit;
 
+  // Always hide soft-deleted messages from UI queries.
   const conditions = [
     eq(messageDeliveries.mailboxId, mailboxId),
     eq(messageDeliveries.folder, folder),
+    isNull(messages.deletedAt),
   ];
 
   if (search) {
@@ -103,6 +106,10 @@ messagesRouter.get("/", async (c) => {
 /**
  * GET /api/messages/:id
  * Get message details including parsed body, recipients, and attachments.
+ *
+ * Access check: caller must be session-authenticated (admin) OR hold an API
+ * token that either has no domainId scope or whose domainId matches a
+ * delivery on this message.
  */
 messagesRouter.get("/:id", async (c) => {
   const db = c.get("db");
@@ -111,7 +118,7 @@ messagesRouter.get("/:id", async (c) => {
   const message = await db
     .select()
     .from(messages)
-    .where(eq(messages.id, id))
+    .where(and(eq(messages.id, id), isNull(messages.deletedAt)))
     .limit(1)
     .then((rows) => rows[0]);
 
@@ -206,6 +213,12 @@ messagesRouter.patch("/:id", async (c) => {
 /**
  * GET /api/messages/:id/attachments/:attachmentId
  * Download an attachment from R2.
+ *
+ * Access control (P2-3): the caller must satisfy one of:
+ *   - session auth (admin) — full access, or
+ *   - API token with no domainId scope, or
+ *   - API token scoped to a domain that owns at least one of this message's
+ *     delivery mailboxes.
  */
 messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
   const db = c.get("db");
@@ -227,6 +240,22 @@ messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
     return c.json({ error: "Attachment not found" }, 404);
   }
 
+  // Enforce API-token domain scope, if any.
+  const tokenDomainId = c.get("apiTokenDomainId");
+  const sessionUserId = c.get("userId");
+  if (!sessionUserId && tokenDomainId) {
+    // Join deliveries → mailboxes to find the domains this message landed in.
+    const rows = await db
+      .select({ domainId: mailboxes.domainId })
+      .from(messageDeliveries)
+      .innerJoin(mailboxes, eq(messageDeliveries.mailboxId, mailboxes.id))
+      .where(eq(messageDeliveries.messageId, id));
+    const allowed = rows.some((r) => r.domainId === tokenDomainId);
+    if (!allowed) {
+      return c.json({ error: "Forbidden: attachment not in token's domain scope" }, 403);
+    }
+  }
+
   const object = await c.env.STORAGE.get(attachment.r2Key);
 
   if (!object) {
@@ -238,6 +267,8 @@ messagesRouter.get("/:id/attachments/:attachmentId", async (c) => {
       "Content-Type": attachment.mimeType,
       "Content-Disposition": `inline; filename="${attachment.filename}"`,
       "Content-Length": attachment.size.toString(),
+      // Discourage downstream caching of potentially sensitive content.
+      "Cache-Control": "private, no-store",
     },
   });
 });

@@ -1,7 +1,7 @@
 // Re-export all schema tables from a single entry point.
 // Drizzle Kit and the DB factory both use this file.
 
-export { users, sessions } from "./auth";
+export { users, sessions, pending2fa } from "./auth";
 
 export {
   domains,

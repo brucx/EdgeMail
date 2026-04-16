@@ -22,13 +22,18 @@ export const messages = sqliteTable(
     deliveryStatus: text("delivery_status"),
     deliveryError: text("delivery_error"),
     deliveryUpdatedAt: text("delivery_updated_at"),
+    // Soft-delete marker for retention. `deleted_at != NULL` means the
+    // message is hidden from the UI but the row (and its R2 blobs) still
+    // exist until the hard-delete cron runs.
+    deletedAt: text("deleted_at"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
   },
   (t) => ({
-    // Speeds up sent-folder and retention scans.
+    // Speeds up retention scans and sent-folder status queries.
     createdAtIdx: index("messages_created_at_idx").on(t.createdAt),
+    deletedAtIdx: index("messages_deleted_at_idx").on(t.deletedAt),
   }),
 );
 

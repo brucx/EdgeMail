@@ -42,6 +42,11 @@
     }
   ],
 
+  // Scheduled triggers. The retention sweep runs daily at 03:15 UTC.
+  "triggers": {
+    "crons": ["15 3 * * *"]
+  },
+
   // NOTE: Email routing (catch-all) is configured in the Cloudflare dashboard,
   // not in wrangler.jsonc. Set up a catch-all rule pointing to this Worker
   // in your domain's Email Routing settings.

@@ -5,11 +5,13 @@ import { createDb } from "./db";
 import { ensureTablesExist } from "./db/migrate";
 import { authSession } from "./middleware/auth";
 import { handleInboundEmail } from "./services/email-inbound";
+import { runRetention } from "./services/retention";
 import { createLogger, generateRequestId } from "./lib/logger";
 
 // Route modules
 import setup from "./routes/setup";
 import auth from "./routes/auth";
+import twoFactor from "./routes/2fa";
 import domainsRouter from "./routes/domains";
 import mailboxesRouter from "./routes/mailboxes";
 import aliasesRouter from "./routes/aliases";
@@ -80,6 +82,7 @@ app.get("/api/health", (c) => {
 
 app.route("/api/setup", setup);
 app.route("/api/auth", auth);
+app.route("/api/auth/2fa", twoFactor);
 app.route("/api/domains", domainsRouter);
 app.route("/api/mailboxes", mailboxesRouter);
 app.route("/api/aliases", aliasesRouter);
@@ -108,5 +111,19 @@ export default {
   ): Promise<void> {
     await ensureTablesExist(env.DB);
     await handleInboundEmail(message, env);
+  },
+
+  /**
+   * Scheduled Worker handler — runs on the cron triggers defined in
+   * wrangler.jsonc. Currently drives the retention sweep (soft + hard
+   * delete of old messages and their R2 artefacts).
+   */
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    await ensureTablesExist(env.DB);
+    ctx.waitUntil(runRetention(env));
   },
 };
