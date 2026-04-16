@@ -11,9 +11,11 @@ RESEND_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ADMIN_EMAIL=admin@yourdomain.com
 
 # ── Cloudflare API Integration (optional) ──────────────────────────────
-# Enables one-click domain setup: auto-configures DNS + Email Routing.
+# Enables one-click domain setup: auto-configures DNS, DKIM, Email Routing.
 # Create a token at: https://dash.cloudflare.com/profile/api-tokens
-# Required permissions: Zone Read, DNS Edit, Email Routing Rules Edit
+# Required permissions (Zone-level, all zones):
+#   Zone Read, DNS Write, Zone Settings Write, Email Routing Rules Write
+# Optional: Account Analytics Read (for storage stats page)
 
 # Cloudflare API token
 CLOUDFLARE_API_TOKEN=

@@ -128,14 +128,15 @@ npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
 
 Create an API Token at [Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Custom Token** with these permissions:
 
-| Permission | Access | Used for |
-|------------|--------|----------|
-| Zone → Zone | Read | Domain import |
-| Zone → DNS | Edit | Domain import |
-| Zone → Email Routing Rules | Edit | Domain import |
-| Account → Account Analytics | Read | Storage analytics (D1 & R2 usage) |
+| Scope | Permission | Access | Used for |
+|-------|------------|--------|----------|
+| Zone (all zones) | Zone | Read | List domains from your CF account |
+| Zone (all zones) | DNS | Write | Create/delete MX, SPF, and DKIM records |
+| Zone (all zones) | Zone Settings | Write | Enable Email Routing + read DKIM public key |
+| Zone (all zones) | Email Routing Rules | Write | Configure catch-all rule → Worker |
+| Account | Account Analytics | Read | Storage analytics (D1 & R2 usage) — optional |
 
-Then open EdgeMail → **Settings → Cloudflare** to verify the connection, and use **Import from Cloudflare** on the Domains page to auto-configure DNS records and Email Routing in one click.
+Then open EdgeMail → **Settings → Cloudflare** to verify the connection, and use **Import from Cloudflare** on the Domains page to auto-configure everything in one click (MX, SPF, DKIM, Email Routing, catch-all rule).
 
 > **Storage Analytics**: The **Account Analytics: Read** permission is required to view D1 and R2 storage metrics on the **Settings → Storage** page. Without it, the storage dashboard will show a permission error with setup instructions. The analytics data is queried via Cloudflare's [GraphQL Analytics API](https://developers.cloudflare.com/analytics/graphql-api/) using the `d1StorageAdaptiveGroups`, `d1AnalyticsAdaptiveGroups`, and `r2StorageAdaptiveGroups` datasets.
 

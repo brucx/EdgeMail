@@ -249,6 +249,7 @@ export interface CloudflareSetupResult {
   steps: {
     dns_mx: SetupStepStatus;
     dns_spf: SetupStepStatus;
+    dns_dkim: SetupStepStatus;
     routing_enable: SetupStepStatus;
     routing_catchall: SetupStepStatus;
   };

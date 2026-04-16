@@ -14,12 +14,14 @@ Cloudflare API v4 提供了所有必需端点：
 | 操作 | API 端点 | 所需权限 |
 |------|---------|---------|
 | 列出账户域名 | `GET /zones` | Zone Read |
-| 创建 DNS 记录 | `POST /zones/{zone_id}/dns_records` | DNS Write |
-| 查询 DNS 记录 | `GET /zones/{zone_id}/dns_records` | DNS Read |
-| 启用 Email Routing | `POST /zones/{zone_id}/email/routing/enable` | Email Routing Write |
-| 配置 Catch-all | `PUT /zones/{zone_id}/email/routing/rules/catch_all` | Email Routing Write |
+| 创建/删除 DNS 记录 | `POST/DELETE /zones/{zone_id}/dns_records` | DNS Write |
+| 查询 DNS 记录 | `GET /zones/{zone_id}/dns_records` | DNS Write (含 Read) |
+| 读取 Email Routing 状态 | `GET /zones/{zone_id}/email/routing` | Zone Settings Read |
+| 启用 Email Routing | `POST /zones/{zone_id}/email/routing/enable` | Zone Settings Write |
+| 获取 DKIM 公钥 | `GET /zones/{zone_id}/email/routing/dns` | Zone Settings Read |
+| 配置 Catch-all | `PUT /zones/{zone_id}/email/routing/rules/catch_all` | Email Routing Rules Write |
 
-Token 所需最小权限集：**Zone Read + DNS Edit + Email Routing Edit**
+Token 所需最小权限集（Zone 级别）：**Zone Read + DNS Write + Zone Settings Write + Email Routing Rules Write**
 
 ## 必要性评估：高
 

@@ -30,9 +30,9 @@ type SetupStep = {
 };
 
 const SETUP_STEPS: SetupStep[] = [
-  { key: "dns_mx", label: "Create MX record" },
+  { key: "dns_mx", label: "Create MX records" },
   { key: "dns_spf", label: "Create SPF record" },
-  { key: "routing_enable", label: "Enable Email Routing" },
+  { key: "dns_dkim", label: "Create DKIM record" },
   { key: "routing_catchall", label: "Configure catch-all rule" },
 ];
 
@@ -112,19 +112,7 @@ export function CloudflareImportModal({
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       queryClient.invalidateQueries({ queryKey: ["cloudflare", "zones"] });
     },
-    onError: (err: Error & { status?: number }) => {
-      // Handle 409 conflict response
-      if (err.status === 409) {
-        try {
-          // The error message may contain conflict info
-          setSetupError(
-            "Existing MX records found that conflict with Cloudflare Email Routing.",
-          );
-        } catch {
-          setSetupError(err.message);
-        }
-        return;
-      }
+    onError: (err: Error) => {
       setSetupError(err.message);
     },
   });
@@ -258,7 +246,7 @@ export function CloudflareImportModal({
                   <div className="mt-4 flex items-start gap-3 rounded-xl bg-[hsl(var(--card))] p-4 shadow-sm">
                     <Info className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--primary))]" />
                     <p className="text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
-                      Create an API Token at <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="font-semibold text-[hsl(var(--primary))] hover:underline">Cloudflare Dashboard &rarr; My Profile &rarr; API Tokens</a> with <strong>Zone Read</strong>, <strong>DNS Edit</strong>, and <strong>Email Routing Edit</strong> permissions.
+                      Create an API Token at <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="font-semibold text-[hsl(var(--primary))] hover:underline">Cloudflare Dashboard &rarr; My Profile &rarr; API Tokens</a> with <strong>Zone Read</strong>, <strong>DNS Write</strong>, <strong>Zone Settings Write</strong>, and <strong>Email Routing Rules Write</strong> permissions.
                     </p>
                   </div>
                 </div>
@@ -430,7 +418,10 @@ export function CloudflareImportModal({
                         }`}
                       >
                         {step.label}
-                        {stepResult === "skipped" && (
+                        {stepResult === "skipped" && step.key === "dns_dkim" && (
+                          <span className="ml-1 text-xs">(add manually in CF Dashboard)</span>
+                        )}
+                        {stepResult === "skipped" && step.key !== "dns_dkim" && (
                           <span className="ml-1 text-xs">(already exists)</span>
                         )}
                       </span>

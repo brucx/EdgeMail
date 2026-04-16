@@ -188,7 +188,7 @@ cloudflareRouter.post(
 
     const db = c.get("db");
     const { zoneId } = c.req.param();
-    const { domainName, existingDomainId, forceOverwrite } =
+    const { domainName, existingDomainId, forceOverwrite, resumeFrom } =
       c.req.valid("json");
 
     const workerName = c.env.CF_WORKER_NAME || "edgemail";
@@ -196,124 +196,206 @@ cloudflareRouter.post(
     const steps: CloudflareSetupResult["steps"] = {
       dns_mx: "skipped",
       dns_spf: "skipped",
+      dns_dkim: "skipped",
       routing_enable: "skipped",
       routing_catchall: "skipped",
     };
 
+    const skipDns = resumeFrom === "dns_created" || resumeFrom === "routing_enabled";
+    const skipToCatchAll = resumeFrom === "routing_enabled";
+
     // ── Phase 1: All Cloudflare API operations (no D1 writes) ───────
 
     try {
-      // Step 1: DNS — check existing MX records for conflicts
-      const existingDns = await cfFetch(
-        token,
-        `/zones/${zoneId}/dns_records?type=MX`,
-      );
-      const mxRecords = existingDns.result as Array<{
-        id: string;
-        content: string;
-      }>;
+      // ── Step 1: DNS — check/create MX and SPF records ──────────
 
-      const hasConflicting = mxRecords.some(
-        (r) => !r.content.includes("mx.cloudflare.net"),
-      );
+      if (!skipDns) {
+        const existingDns = await cfFetch(
+          token,
+          `/zones/${zoneId}/dns_records?type=MX`,
+        );
+        const mxRecords = existingDns.result as Array<{
+          id: string;
+          content: string;
+        }>;
 
-      if (hasConflicting && !forceOverwrite) {
-        return c.json(
-          {
+        const hasConflicting = mxRecords.some(
+          (r) => !r.content.includes("mx.cloudflare.net"),
+        );
+
+        // Return conflict info as 200 so the client can show the
+        // "Replace & Continue" UI (409 was unreachable from onSuccess)
+        if (hasConflicting && !forceOverwrite) {
+          return c.json({
             data: { domainId: "", steps },
             warning: "Existing non-Cloudflare MX records found",
-            conflictingRecords: mxRecords.map((r) => r.content),
-          },
-          409,
-        );
-      }
-
-      // Delete conflicting MX records if forceOverwrite
-      if (hasConflicting && forceOverwrite) {
-        for (const record of mxRecords) {
-          if (!record.content.includes("mx.cloudflare.net")) {
-            await cfFetch(
-              token,
-              `/zones/${zoneId}/dns_records/${record.id}`,
-              { method: "DELETE" },
-            );
-          }
+            conflictingRecords: mxRecords
+              .filter((r) => !r.content.includes("mx.cloudflare.net"))
+              .map((r) => r.content),
+          });
         }
+
+        // Delete conflicting MX records if forceOverwrite
+        if (hasConflicting && forceOverwrite) {
+          await Promise.all(
+            mxRecords
+              .filter((r) => !r.content.includes("mx.cloudflare.net"))
+              .map((r) =>
+                cfFetch(token, `/zones/${zoneId}/dns_records/${r.id}`, {
+                  method: "DELETE",
+                }),
+              ),
+          );
+        }
+
+        // Create missing Cloudflare MX records (Email Routing needs all 3)
+        const CF_MX = [
+          { content: "route1.mx.cloudflare.net", priority: 36 },
+          { content: "route2.mx.cloudflare.net", priority: 84 },
+          { content: "route3.mx.cloudflare.net", priority: 12 },
+        ];
+        const existingCfMx = new Set(
+          mxRecords
+            .filter((r) => r.content.includes("mx.cloudflare.net"))
+            .map((r) => r.content.replace(/\.$/, "")),
+        );
+        const missingMx = CF_MX.filter((m) => !existingCfMx.has(m.content));
+
+        if (missingMx.length > 0) {
+          await Promise.all(
+            missingMx.map((mx) =>
+              cfFetch(token, `/zones/${zoneId}/dns_records`, {
+                method: "POST",
+                body: JSON.stringify({
+                  type: "MX",
+                  name: domainName,
+                  content: mx.content,
+                  priority: mx.priority,
+                  ttl: 3600,
+                }),
+              }),
+            ),
+          );
+          steps.dns_mx = "success";
+        }
+
+        // Create SPF TXT record if not present
+        const existingTxt = await cfFetch(
+          token,
+          `/zones/${zoneId}/dns_records?type=TXT`,
+        );
+        const txtRecords = existingTxt.result as Array<{
+          id: string;
+          content: string;
+        }>;
+        const hasSpf = txtRecords.some((r) =>
+          r.content.includes("_spf.mx.cloudflare.net"),
+        );
+        if (!hasSpf) {
+          await cfFetch(token, `/zones/${zoneId}/dns_records`, {
+            method: "POST",
+            body: JSON.stringify({
+              type: "TXT",
+              name: domainName,
+              content: "v=spf1 include:_spf.mx.cloudflare.net ~all",
+              ttl: 3600,
+            }),
+          });
+          steps.dns_spf = "success";
+        }
+
       }
 
-      // Create MX record if not present
-      const hasCfMx = mxRecords.some((r) =>
-        r.content.includes("mx.cloudflare.net"),
-      );
-      if (!hasCfMx) {
-        await cfFetch(token, `/zones/${zoneId}/dns_records`, {
-          method: "POST",
-          body: JSON.stringify({
-            type: "MX",
-            name: domainName,
-            content: "route1.mx.cloudflare.net",
-            priority: 69,
-            ttl: 3600,
-          }),
-        });
-        steps.dns_mx = "success";
-      }
+      // ── Step 2: Try to enable Email Routing via API ────────────
 
-      // Create SPF TXT record if not present
-      const existingTxt = await cfFetch(
-        token,
-        `/zones/${zoneId}/dns_records?type=TXT`,
-      );
-      const txtRecords = existingTxt.result as Array<{ content: string }>;
-      const hasSpf = txtRecords.some((r) =>
-        r.content.includes("_spf.mx.cloudflare.net"),
-      );
-      if (!hasSpf) {
-        await cfFetch(token, `/zones/${zoneId}/dns_records`, {
-          method: "POST",
-          body: JSON.stringify({
-            type: "TXT",
-            name: domainName,
-            content: "v=spf1 include:_spf.mx.cloudflare.net ~all",
-            ttl: 3600,
-          }),
-        });
-        steps.dns_spf = "success";
-      }
-
-      // Step 2: Enable Email Routing
-      try {
-        await cfFetch(token, `/zones/${zoneId}/email/routing/dns`, {
-          method: "POST",
-        });
-        steps.routing_enable = "success";
-      } catch {
-        // Check if already enabled
+      if (!skipToCatchAll) {
         try {
-          const settings = await cfFetch(
+          const routingStatus = await cfFetch(
             token,
             `/zones/${zoneId}/email/routing`,
           );
-          const result = settings.result as { enabled?: boolean } | null;
-          if (result?.enabled) {
-            steps.routing_enable = "skipped";
+          const settings = routingStatus.result as { enabled?: boolean };
+
+          if (settings.enabled) {
+            steps.routing_enable = "success";
           } else {
-            throw new Error(
-              "Could not enable Email Routing via API. Please enable it manually in Cloudflare Dashboard → Email → Email Routing, then retry.",
+            await cfFetch(
+              token,
+              `/zones/${zoneId}/email/routing/enable`,
+              { method: "POST", body: JSON.stringify({ enabled: true }) },
             );
+            steps.routing_enable = "success";
           }
-        } catch (checkErr) {
-          // Re-throw if it's our own error message
-          if (checkErr instanceof Error && checkErr.message.includes("manually")) {
-            throw checkErr;
-          }
-          // GET also failed — skip optimistically, catch-all will verify
-          console.warn("[EdgeMail] Could not verify Email Routing status, proceeding");
+        } catch {
+          // Scoped tokens may lack permission — user must enable in
+          // Cloudflare Dashboard once per zone. Non-fatal: catch-all
+          // may still succeed if routing was enabled previously.
           steps.routing_enable = "skipped";
         }
       }
 
-      // Step 3: Set catch-all rule to Worker
+      // ── Step 3: DKIM record ────────────────────────────────────
+      // Runs AFTER Enable so the DKIM key is available for fresh zones.
+      // Enable auto-creates DKIM in DNS; we check and create only if missing.
+
+      if (!skipDns) {
+        try {
+          // Check if DKIM already exists in DNS
+          const allTxt = await cfFetch(
+            token,
+            `/zones/${zoneId}/dns_records?type=TXT`,
+          );
+          const allTxtRecords = allTxt.result as Array<{
+            name: string;
+            content: string;
+          }>;
+          const hasDkim = allTxtRecords.some((r) =>
+            r.content.includes("v=DKIM1"),
+          );
+
+          if (hasDkim) {
+            steps.dns_dkim = "success";
+          } else {
+            // Get the required DKIM value from Email Routing DNS API
+            // (needs Zone Settings Read permission)
+            const routingDns = await cfFetch(
+              token,
+              `/zones/${zoneId}/email/routing/dns`,
+            );
+            const requiredRecords = (
+              routingDns.result as Array<{
+                type: string;
+                name: string;
+                content: string;
+                ttl: number;
+              }>
+            ) ?? [];
+
+            const dkimRecord = requiredRecords.find(
+              (r) => r.type === "TXT" && r.name.includes("._domainkey"),
+            );
+
+            if (dkimRecord) {
+              await cfFetch(token, `/zones/${zoneId}/dns_records`, {
+                method: "POST",
+                body: JSON.stringify({
+                  type: "TXT",
+                  name: dkimRecord.name,
+                  content: dkimRecord.content,
+                  ttl: dkimRecord.ttl || 3600,
+                }),
+              });
+              steps.dns_dkim = "success";
+            }
+          }
+        } catch {
+          // Zone Settings Read permission missing — skip gracefully
+          steps.dns_dkim = "skipped";
+        }
+      }
+
+      // ── Step 4: Set catch-all rule to Worker ───────────────────
+
       await cfFetch(
         token,
         `/zones/${zoneId}/email/routing/rules/catch_all`,
@@ -330,18 +412,14 @@ cloudflareRouter.post(
 
     } catch (err) {
       // CF API failed — no D1 writes happened, return clean error
-      const message = err instanceof Error ? err.message : "Setup failed";
+      let message = err instanceof Error ? err.message : "Setup failed";
       console.error("[EdgeMail] Cloudflare setup error:", message, err);
 
-      // Mark which steps failed based on current state
-      if (steps.dns_mx === "skipped" && steps.dns_spf === "skipped") {
-        steps.dns_mx = "error";
-      }
-      if (steps.routing_enable !== "success" && steps.routing_enable !== "skipped") {
-        steps.routing_enable = "error";
-      }
       if (steps.routing_catchall !== "success") {
         steps.routing_catchall = "error";
+        message +=
+          "\n\nHint: If Email Routing is not yet enabled for this domain, " +
+          "go to Cloudflare Dashboard → Email → Email Routing → Enable, then retry.";
       }
 
       return c.json(

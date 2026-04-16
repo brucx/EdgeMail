@@ -490,53 +490,48 @@ function OnboardingPage() {
                     </p>
                   </div>
                   <div className="space-y-3">
-                    <div className="rounded-xl bg-[hsl(var(--accent))] p-4">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--outline))]">
-                          MX Record
-                        </span>
-                        <button
-                          onClick={() =>
-                            handleCopy("route1.mx.cloudflare.net", "mx")
-                          }
-                          className="rounded p-1 hover:bg-[hsl(var(--muted))]"
-                        >
-                          {copied === "mx" ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5 text-[hsl(var(--outline))]" />
-                          )}
-                        </button>
+                    {[
+                      { host: "route1.mx.cloudflare.net", pri: 36 },
+                      { host: "route2.mx.cloudflare.net", pri: 84 },
+                      { host: "route3.mx.cloudflare.net", pri: 12 },
+                    ].map((mx) => (
+                      <div key={mx.host} className="rounded-xl bg-[hsl(var(--accent))] p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--outline))]">
+                            MX Record
+                          </span>
+                          <button
+                            onClick={() => handleCopy(mx.host, mx.host)}
+                            className="rounded p-1 hover:bg-[hsl(var(--muted))]"
+                          >
+                            {copied === mx.host ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5 text-[hsl(var(--outline))]" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <p>
+                            <span className="text-[hsl(var(--outline))]">Type:</span> MX
+                          </p>
+                          <p>
+                            <span className="text-[hsl(var(--outline))]">Name:</span>{" "}
+                            {domainName}
+                          </p>
+                          <p>
+                            <span className="text-[hsl(var(--outline))]">Value:</span>{" "}
+                            <code className="rounded bg-[hsl(var(--card))] px-1.5 py-0.5 text-xs font-mono">
+                              {mx.host}
+                            </code>
+                          </p>
+                          <p>
+                            <span className="text-[hsl(var(--outline))]">Priority:</span>{" "}
+                            {mx.pri}
+                          </p>
+                        </div>
                       </div>
-                      <div className="space-y-1 text-sm">
-                        <p>
-                          <span className="text-[hsl(var(--outline))]">
-                            Type:
-                          </span>{" "}
-                          MX
-                        </p>
-                        <p>
-                          <span className="text-[hsl(var(--outline))]">
-                            Name:
-                          </span>{" "}
-                          {domainName}
-                        </p>
-                        <p>
-                          <span className="text-[hsl(var(--outline))]">
-                            Value:
-                          </span>{" "}
-                          <code className="rounded bg-[hsl(var(--card))] px-1.5 py-0.5 text-xs font-mono">
-                            route1.mx.cloudflare.net
-                          </code>
-                        </p>
-                        <p>
-                          <span className="text-[hsl(var(--outline))]">
-                            Priority:
-                          </span>{" "}
-                          69
-                        </p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                   <button
                     onClick={() => setStep(2)}
