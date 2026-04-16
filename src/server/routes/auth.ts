@@ -1,12 +1,20 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { eq, and, gt } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { setCookie, deleteCookie } from "hono/cookie";
 import type { Env, AppVariables } from "../env";
-import { users, sessions } from "../db/schema";
-import { verifyPassword, generateSessionToken } from "../lib/crypto";
+import { users, sessions, auditLogs } from "../db/schema";
+import {
+  verifyPassword,
+  hashPassword,
+  generateSessionToken,
+} from "../lib/crypto";
 import { generateId } from "../lib/id";
-import { loginSchema } from "@shared/types";
+import {
+  loginSchema,
+  updateProfileSchema,
+  changePasswordSchema,
+} from "@shared/types";
 import { requireAuth } from "../middleware/auth";
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
@@ -124,6 +132,7 @@ auth.get("/me", requireAuth, async (c) => {
       email: users.email,
       displayName: users.displayName,
       role: users.role,
+      createdAt: users.createdAt,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -136,5 +145,137 @@ auth.get("/me", requireAuth, async (c) => {
 
   return c.json({ data: user });
 });
+
+/**
+ * PATCH /api/auth/me
+ * Update the current user's profile (display name only for now).
+ */
+auth.patch(
+  "/me",
+  requireAuth,
+  zValidator("json", updateProfileSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        { error: "Validation failed", details: result.error.flatten() },
+        400,
+      );
+    }
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const userId = c.get("userId")!;
+    const { displayName } = c.req.valid("json");
+
+    await db
+      .update(users)
+      .set({ displayName, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, userId));
+
+    await db.insert(auditLogs).values({
+      id: generateId(),
+      userId,
+      action: "user.update",
+      resourceType: "user",
+      resourceId: userId,
+      details: JSON.stringify({ displayName }),
+    });
+
+    const user = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        role: users.role,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    return c.json({ data: user, message: "Profile updated" });
+  },
+);
+
+/**
+ * POST /api/auth/password
+ * Change the current user's password. Verifies the current password,
+ * rehashes the new one, and revokes all OTHER sessions.
+ */
+auth.post(
+  "/password",
+  requireAuth,
+  zValidator("json", changePasswordSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        { error: "Validation failed", details: result.error.flatten() },
+        400,
+      );
+    }
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const userId = c.get("userId")!;
+    const sessionId = c.get("sessionId");
+    const { currentPassword, newPassword } = c.req.valid("json");
+
+    if (currentPassword === newPassword) {
+      return c.json(
+        { error: "New password must differ from current password" },
+        400,
+      );
+    }
+
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    let valid: boolean;
+    try {
+      valid = await verifyPassword(currentPassword, user.passwordHash);
+    } catch (err) {
+      console.error("[EdgeMail] Password verification error:", err);
+      return c.json({ error: "Internal error during authentication" }, 500);
+    }
+    if (!valid) {
+      return c.json({ error: "Current password is incorrect" }, 401);
+    }
+
+    const newHash = await hashPassword(newPassword);
+
+    await db
+      .update(users)
+      .set({ passwordHash: newHash, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, userId));
+
+    // Revoke this user's other sessions — force re-login elsewhere.
+    if (sessionId) {
+      await db
+        .delete(sessions)
+        .where(
+          and(eq(sessions.userId, userId), ne(sessions.id, sessionId)),
+        );
+    } else {
+      await db.delete(sessions).where(eq(sessions.userId, userId));
+    }
+
+    await db.insert(auditLogs).values({
+      id: generateId(),
+      userId,
+      action: "user.password_change",
+      resourceType: "user",
+      resourceId: userId,
+    });
+
+    return c.json({ message: "Password updated. Other sessions were signed out." });
+  },
+);
 
 export default auth;
