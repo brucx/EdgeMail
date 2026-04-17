@@ -68,11 +68,13 @@ function AuthenticatedLayout() {
   const searchQuery = searchParams.q || "";
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const q = e.target.value || undefined;
+    // `_authenticated` has no search schema, so TanStack Router infers the
+    // reducer's `prev`/return as `never`. Widen with `as any` — the runtime
+    // merge is shape-safe and the concrete search schema is owned by child
+    // routes (e.g. inbox/sent consuming `q`).
     navigate({
-      search: (prev: any) => ({
-        ...prev,
-        q: e.target.value || undefined,
-      }),
+      search: ((prev: Record<string, unknown>) => ({ ...prev, q })) as any,
       replace: true,
     });
   };
