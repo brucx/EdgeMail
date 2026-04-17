@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   mailboxes,
@@ -67,18 +67,37 @@ sendRouter.use(
  */
 sendRouter.get("/capabilities", async (c) => {
   const db = c.get("db");
-  const [perDomainKeyCount, domainRows] = await Promise.all([
+  // Count sends since UTC midnight (matches CF's reset boundary). D1 stores
+  // `messages.createdAt` as an ISO datetime string, so a lexical >= compare
+  // against `YYYY-MM-DD 00:00:00` works correctly.
+  const utcMidnight = new Date();
+  utcMidnight.setUTCHours(0, 0, 0, 0);
+  const utcMidnightStr = utcMidnight.toISOString().slice(0, 19).replace("T", " ");
+
+  const [perDomainKeyCount, domainRows, cloudflareSentToday] = await Promise.all([
     db
       .select({ n: sql<number>`count(*)` })
       .from(domains)
       .where(isNotNull(domains.resendApiKey))
       .then((rows) => Number(rows[0]?.n ?? 0)),
     db.select({ domain: domains.domain }).from(domains),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.provider, "cloudflare"),
+          gte(messages.createdAt, utcMidnightStr),
+        ),
+      )
+      .then((rows) => Number(rows[0]?.n ?? 0)),
   ]);
+
   const caps = await getSendCapabilities(
     c.env,
     perDomainKeyCount,
     domainRows.map((r) => r.domain),
+    cloudflareSentToday,
   );
   return c.json({ data: caps });
 });

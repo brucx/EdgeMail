@@ -278,6 +278,12 @@ export interface SendCapabilitiesResponse {
      *  domain will be DKIM-signed with the shared cloudflare-email.com
      *  domain and fail DMARC alignment at the recipient. */
     domainStatus: Array<{ domain: string; onboarded: boolean }> | null;
+    /** Daily sending quota from CF (e.g. { value: 1000, unit: "day" }). */
+    quota: { value: number; unit: string } | null;
+    /** Sends initiated by EdgeMail through the cloudflare provider since UTC
+     *  midnight. Local count — doesn't include sends from other tools on
+     *  the same account. */
+    usedToday: number | null;
   };
   resend: {
     globalConfigured: boolean;

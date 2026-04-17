@@ -379,6 +379,15 @@ function SendingStatusCard({
               ? `Onboarded: ${caps.cloudflare.configuredDomains.join(", ")}`
               : undefined
           }
+          usage={
+            caps.cloudflare.quota
+              ? {
+                  used: caps.cloudflare.usedToday ?? 0,
+                  limit: caps.cloudflare.quota.value,
+                  unit: caps.cloudflare.quota.unit,
+                }
+              : undefined
+          }
           actionHref={
             caps.cloudflare.accountStatus === "gated"
               ? "https://dash.cloudflare.com/?to=/:account/workers/plans"
@@ -458,12 +467,42 @@ function DomainOnboardBadge({
 
 type TileStatus = "ready" | "offline" | "gated" | "unknown";
 
+/** Daily quota usage bar rendered inside the Cloudflare provider tile.
+ *  Pure typography + tonal fill, no border — matches DESIGN.md. */
+function UsageBar({ used, limit, unit }: { used: number; limit: number; unit: string }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  // Colour scale: green under 75%, amber 75–95%, destructive above.
+  const fill =
+    pct >= 95
+      ? "bg-[hsl(var(--destructive))]"
+      : pct >= 75
+        ? "bg-amber-500"
+        : "bg-emerald-500";
+  return (
+    <div className="mt-3 space-y-1">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-semibold text-[hsl(var(--foreground))]">
+          {used.toLocaleString()} / {limit.toLocaleString()}
+        </span>
+        <span className="text-[hsl(var(--muted-foreground))]">per {unit}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+        <div
+          className={`h-full ${fill} transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ProviderTile({
   icon,
   title,
   status,
   message,
   details,
+  usage,
   actionHref,
   actionLabel,
 }: {
@@ -472,6 +511,7 @@ function ProviderTile({
   status: TileStatus;
   message: string;
   details?: string;
+  usage?: { used: number; limit: number; unit: string };
   actionHref?: string;
   actionLabel?: string;
 }) {
@@ -516,6 +556,7 @@ function ProviderTile({
           {details}
         </p>
       )}
+      {usage && <UsageBar used={usage.used} limit={usage.limit} unit={usage.unit} />}
       {actionHref && actionLabel && (
         <a
           href={actionHref}

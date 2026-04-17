@@ -37,6 +37,15 @@ export interface SendCapabilities {
      *  TXT record resolve? Populated when bindingConfigured is true and we
      *  were given a domain list. NULL = not probed. */
     domainStatus: Array<{ domain: string; onboarded: boolean }> | null;
+    /** Account's daily Email Service send quota (from
+     *  `/accounts/{id}/email/sending/limits`). NULL when we couldn't read it
+     *  (no CF token, token lacks permission, etc). */
+    quota: { value: number; unit: string } | null;
+    /** Number of outbound messages EdgeMail sent through the cloudflare
+     *  provider since UTC midnight. Computed locally from the messages
+     *  table — only counts sends initiated by EdgeMail (not other tools
+     *  using the same account). */
+    usedToday: number | null;
   };
   resend: {
     /** Global RESEND_API_KEY secret is set to a plausible value. */
@@ -52,6 +61,30 @@ export interface SendCapabilities {
 interface TokenVerifyResult {
   id: string;
   status: string; // "active" | "disabled" | "expired"
+}
+
+interface EmailSendingLimits {
+  quota: { value: number; unit: string };
+}
+
+/**
+ * Fetch the account's Email Service daily quota. Public REST endpoint,
+ * works with any token that has Email-Service read permission (or, in
+ * practice, any valid account-scoped token since CF returns quota for
+ * anyone who can see the account). Returns null on any error so the UI
+ * just omits the metric instead of breaking.
+ */
+async function getQuota(env: Env): Promise<SendCapabilities["cloudflare"]["quota"]> {
+  if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) return null;
+  try {
+    const res = await cfFetch<EmailSendingLimits>(
+      env.CLOUDFLARE_API_TOKEN,
+      `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/email/sending/limits`,
+    );
+    return res.result?.quota ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -213,9 +246,12 @@ export async function getSendCapabilities(
   perDomainKeys: number,
   /** List of domain names in the DB, used for per-domain onboarding probe. */
   domainNames: string[] = [],
+  /** Number of cloudflare-provider sends since UTC midnight; counted by the
+   *  caller (D1 query) so capabilities.ts stays DB-agnostic. */
+  usedToday: number | null = null,
 ): Promise<SendCapabilities> {
   const bindingConfigured = Boolean(env.EMAIL);
-  const [probe, domainStatus] = await Promise.all([
+  const [probe, domainStatus, quota] = await Promise.all([
     bindingConfigured
       ? probeCloudflareAccount(env)
       : Promise.resolve({
@@ -232,6 +268,7 @@ export async function getSendCapabilities(
           })),
         )
       : Promise.resolve(null),
+    bindingConfigured ? getQuota(env) : Promise.resolve(null),
   ]);
 
   const globalConfigured = Boolean(
@@ -255,6 +292,8 @@ export async function getSendCapabilities(
       bindingConfigured,
       ...probe,
       domainStatus,
+      quota,
+      usedToday,
     },
     resend: {
       globalConfigured,
