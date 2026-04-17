@@ -22,6 +22,9 @@ export const domains = sqliteTable("domains", {
   resendApiKey: text("resend_api_key"),
   // Last 4 chars of the plaintext key — used only for UI display hints.
   resendApiKeyHint: text("resend_api_key_hint"),
+  // Outbound provider preference. NULL = auto-pick (Cloudflare when the
+  // `EMAIL` binding is bound, otherwise Resend). See services/mailer.
+  senderProvider: text("sender_provider", { enum: ["resend", "cloudflare"] }),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

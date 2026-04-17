@@ -73,6 +73,11 @@ export const updateDomainSchema = z.object({
   resendApiKey: z
     .union([z.string().min(10).startsWith("re_"), z.null()])
     .optional(),
+  // Outbound provider preference. NULL = auto-pick (Cloudflare when the
+  // `EMAIL` binding is bound, otherwise Resend).
+  senderProvider: z
+    .union([z.enum(["resend", "cloudflare"]), z.null()])
+    .optional(),
 });
 
 export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
@@ -88,6 +93,8 @@ export interface DomainInfo {
   resendApiKeyConfigured: boolean;
   // Short display hint like "re_abc…wxyz". null if no per-domain key.
   resendApiKeyHint: string | null;
+  // Outbound provider preference. NULL = auto-pick.
+  senderProvider: "resend" | "cloudflare" | null;
   createdAt: string;
 }
 
@@ -189,6 +196,9 @@ export interface MessageSummary {
   id: string;
   fromAddress: string;
   fromName: string | null;
+  /** Primary "To" recipients. Populated for both inbox and sent messages so
+   *  the UI can show "To: …" in the Sent view without a second round-trip. */
+  toAddresses: string[];
   subject: string | null;
   isRead: boolean;
   hasAttachments: boolean;
@@ -198,6 +208,11 @@ export interface MessageSummary {
 export interface MessageDetail extends MessageSummary {
   textBody: string | null;
   htmlBody: string | null;
+  /** Non-null when the message was sent outbound (any of: sent, delivered,
+   *  bounced, delivery_delayed, complained, failed). NULL for inbound mail.
+   *  Used by the detail view to decide whether to emphasise To or From. */
+  deliveryStatus: string | null;
+  deliveryError: string | null;
   recipients: { address: string; type: "to" | "cc" | "bcc" }[];
   attachments: AttachmentInfo[];
 }
@@ -250,6 +265,26 @@ export const sendEmailSchema = z.object({
 });
 
 export type SendEmailInput = z.infer<typeof sendEmailSchema>;
+
+// Returned by GET /api/send/capabilities. Keep in sync with
+// server/services/mailer/capabilities.ts.
+export interface SendCapabilitiesResponse {
+  cloudflare: {
+    bindingConfigured: boolean;
+    accountStatus: "ready" | "gated" | "unknown";
+    message: string;
+    configuredDomains: string[] | null;
+    /** Per-domain onboarding probe. `onboarded: false` means mail from that
+     *  domain will be DKIM-signed with the shared cloudflare-email.com
+     *  domain and fail DMARC alignment at the recipient. */
+    domainStatus: Array<{ domain: string; onboarded: boolean }> | null;
+  };
+  resend: {
+    globalConfigured: boolean;
+    perDomainKeys: number;
+  };
+  defaultProvider: "cloudflare" | "resend" | "none";
+}
 
 // ─── Cloudflare Integration ────────────────────────────────────────────────
 

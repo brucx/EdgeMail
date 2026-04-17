@@ -42,6 +42,31 @@
     }
   ],
 
+  // Cloudflare Email Service (send_email) binding. Enabled by default so the
+  // Deploy to Cloudflare button provisions everything in one click. The
+  // binding itself is inert until a domain is added to Email Service and
+  // `env.EMAIL.send()` is invoked.
+  //
+  // Runtime constraints (surfaced as friendly errors in the UI — see
+  // `GET /api/send/capabilities` and `services/mailer/cloudflare.ts`):
+  //   - Workers Paid plan is required to send to arbitrary recipients.
+  //     Free / new accounts can still send to verified destination addresses
+  //     in Cloudflare Email Routing for testing.
+  //   - The sender domain must be added to Email Service (automatic SPF /
+  //     DKIM / DMARC records are created for you).
+  //
+  // Comment this out if you never want the "cloudflare" provider; the mailer
+  // then always falls back to Resend.
+  // `remote: true` is required for `wrangler dev` to actually route sends
+  // through the live Cloudflare Email Service. Without it the local runtime
+  // stubs the binding and `env.EMAIL.send()` returns undefined, which shows
+  // up as a confusing "Cannot read properties of undefined" error inside the
+  // mailer. Production deploys ignore `remote` (they always hit the real
+  // service), so this is a dev-only shim.
+  "send_email": [
+    { "name": "EMAIL", "remote": true }
+  ],
+
   // Scheduled triggers. The retention sweep runs daily at 03:15 UTC.
   "triggers": {
     "crons": ["15 3 * * *"]

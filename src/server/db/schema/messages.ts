@@ -22,6 +22,10 @@ export const messages = sqliteTable(
     deliveryStatus: text("delivery_status"),
     deliveryError: text("delivery_error"),
     deliveryUpdatedAt: text("delivery_updated_at"),
+    // Outbound provider that handled the send. NULL for inbound mail.
+    // Cloudflare Email Service has no delivery webhook today, so deliveryStatus
+    // for "cloudflare" rows stays at "sent" until/unless we add polling.
+    provider: text("provider", { enum: ["resend", "cloudflare"] }),
     // Soft-delete marker for retention. `deleted_at != NULL` means the
     // message is hidden from the UI but the row (and its R2 blobs) still
     // exist until the hard-delete cron runs.

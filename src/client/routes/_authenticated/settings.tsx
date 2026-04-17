@@ -9,7 +9,7 @@ const tabs = [
   { to: "/settings/domains", label: "Domains", icon: Globe },
   { to: "/settings/api-tokens", label: "API Tokens", icon: Key },
   { to: "/settings/profile", label: "Profile", icon: Shield },
-  { to: "/settings/resend", label: "Resend", icon: Mail },
+  { to: "/settings/resend", label: "Sending", icon: Mail },
   { to: "/settings/storage", label: "Storage", icon: Database },
 ] as const;
 

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, desc, like, count, or, isNull } from "drizzle-orm";
+import { eq, and, desc, like, count, or, isNull, inArray } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   messages,
@@ -72,26 +72,50 @@ messagesRouter.get("/", async (c) => {
 
   const data = await baseQuery;
 
-  const result = await Promise.all(
-    data.map(async (msg) => {
-      const attCount = await db
-        .select({ value: count() })
-        .from(attachments)
-        .where(eq(attachments.messageId, msg.id))
-        .then((rows) => rows[0]?.value ?? 0);
+  const messageIds = data.map((m) => m.id);
 
-      return {
-        id: msg.id,
-        fromAddress: msg.fromAddress,
-        fromName: msg.fromName,
-        subject: msg.subject,
-        isRead: msg.isRead,
-        hasAttachments: attCount > 0,
-        deliveryStatus: msg.deliveryStatus,
-        createdAt: msg.createdAt,
-      };
-    }),
-  );
+  // Batch-fetch recipients + attachment counts in two queries instead of
+  // N+1 per-message lookups. Empty arrays when messageIds is empty.
+  const [recipientRows, attachmentRows] = messageIds.length
+    ? await Promise.all([
+        db
+          .select({
+            messageId: messageRecipients.messageId,
+            address: messageRecipients.address,
+            type: messageRecipients.type,
+          })
+          .from(messageRecipients)
+          .where(inArray(messageRecipients.messageId, messageIds)),
+        db
+          .select({ messageId: attachments.messageId })
+          .from(attachments)
+          .where(inArray(attachments.messageId, messageIds)),
+      ])
+    : [[], []];
+
+  const toByMsg = new Map<string, string[]>();
+  for (const r of recipientRows) {
+    if (r.type !== "to") continue;
+    const list = toByMsg.get(r.messageId) ?? [];
+    list.push(r.address);
+    toByMsg.set(r.messageId, list);
+  }
+  const attachmentCountByMsg = new Map<string, number>();
+  for (const a of attachmentRows) {
+    attachmentCountByMsg.set(a.messageId, (attachmentCountByMsg.get(a.messageId) ?? 0) + 1);
+  }
+
+  const result = data.map((msg) => ({
+    id: msg.id,
+    fromAddress: msg.fromAddress,
+    fromName: msg.fromName,
+    toAddresses: toByMsg.get(msg.id) ?? [],
+    subject: msg.subject,
+    isRead: msg.isRead,
+    hasAttachments: (attachmentCountByMsg.get(msg.id) ?? 0) > 0,
+    deliveryStatus: msg.deliveryStatus,
+    createdAt: msg.createdAt,
+  }));
 
   const totalResult = await db
     .select({ value: count() })

@@ -5,11 +5,21 @@ import { api } from "@/lib/api";
 import type { MessageDetail } from "@shared/types";
 
 export const Route = createFileRoute("/_authenticated/d/$domainId/messages/$id")({
+  // `folder` tells us which list the user came from. Used for the back link,
+  // the sidebar highlight (consumed in _authenticated.tsx), and to pick
+  // whether to emphasise the sender ("From", for inbox) or the recipients
+  // ("To", for sent). When absent we infer from deliveryStatus — only
+  // outbound messages have one.
+  validateSearch: (search: Record<string, unknown>): { folder?: "inbox" | "sent" } => {
+    const f = search.folder;
+    return f === "sent" || f === "inbox" ? { folder: f } : {};
+  },
   component: MessageDetailPage,
 });
 
 function MessageDetailPage() {
   const { domainId, id } = Route.useParams();
+  const { folder } = Route.useSearch();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["message", id],
@@ -17,6 +27,14 @@ function MessageDetailPage() {
   });
 
   const message = data?.data;
+  // Resolve effective folder: URL param wins; otherwise infer from the
+  // message itself (sent messages carry deliveryStatus; inbound don't).
+  const effectiveFolder: "inbox" | "sent" =
+    folder ?? (message?.deliveryStatus ? "sent" : "inbox");
+  const backTo =
+    effectiveFolder === "sent" ? "/d/$domainId/sent" : "/d/$domainId/inbox";
+  const backLabel =
+    effectiveFolder === "sent" ? "Back to Sent" : "Back to Inbox";
 
   if (isLoading) {
     return (
@@ -30,12 +48,12 @@ function MessageDetailPage() {
     return (
       <div className="animate-fade-in p-8 bg-[hsl(var(--accent))]">
         <Link
-          to="/d/$domainId/inbox"
+          to={backTo}
           params={{ domainId }}
           className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Inbox
+          {backLabel}
         </Link>
         <div className="rounded-2xl bg-[hsl(var(--card))] p-6">
           <p className="text-sm text-[hsl(var(--destructive))]">
@@ -46,16 +64,27 @@ function MessageDetailPage() {
     );
   }
 
+  const isSent = effectiveFolder === "sent";
+  const toRecipients = (message.recipients ?? []).filter((r) => r.type === "to");
+  const primaryAddresses = isSent
+    ? toRecipients.map((r) => r.address).join(", ") || "(no recipient)"
+    : message.fromName || message.fromAddress;
+  const secondaryAddresses = isSent
+    ? `From: ${message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress}`
+    : message.fromName
+      ? message.fromAddress
+      : null;
+
   return (
     <div className="animate-fade-in bg-[hsl(var(--accent))] min-h-full">
       <div className="px-8 py-6">
         <Link
-          to="/d/$domainId/inbox"
+          to={backTo}
           params={{ domainId }}
           className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Inbox
+          {backLabel}
         </Link>
 
         <div className="rounded-2xl bg-[hsl(var(--card))] shadow-sm overflow-hidden">
@@ -63,28 +92,39 @@ function MessageDetailPage() {
             <h1 className="font-[family-name:var(--font-headline)] mb-4 text-xl font-bold tracking-tight">
               {message.subject || "(No subject)"}
             </h1>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(var(--secondary))]">
+            {/* Sender / recipient header.
+                Per DESIGN.md "Depth through tonal layering, not borders":
+                no sub-card, no border — hierarchy is carried by the uppercase
+                micro-label + font-weight delta against the surrounding white
+                card. The section divider below (h-px outline-variant/15)
+                already separates this block from the body. */}
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--muted))] mt-0.5">
                 <User className="h-5 w-5 text-[hsl(var(--primary))]" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">
-                  {message.fromName || message.fromAddress}
+                {isSent && (
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-0.5">
+                    To
+                  </p>
+                )}
+                <p className="text-sm font-semibold text-[hsl(var(--foreground))] truncate">
+                  {primaryAddresses}
                 </p>
-                {message.fromName && (
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {message.fromAddress}
+                {secondaryAddresses && (
+                  <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))] truncate">
+                    {secondaryAddresses}
                   </p>
                 )}
               </div>
-              <span className="flex items-center gap-1 text-xs text-[hsl(var(--outline))]">
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-[hsl(var(--outline))] mt-1">
                 <Clock className="h-3.5 w-3.5" />
                 {new Date(message.createdAt).toLocaleString()}
               </span>
             </div>
             {message.recipients && message.recipients.length > 0 && (
               <div className="mt-3 space-y-1 text-xs text-[hsl(var(--muted-foreground))]">
-                {["to", "cc", "bcc"].map((type) => {
+                {(isSent ? ["cc", "bcc"] : ["to", "cc", "bcc"]).map((type) => {
                   const addrs = message.recipients.filter((r) => r.type === type);
                   if (addrs.length === 0) return null;
                   return (

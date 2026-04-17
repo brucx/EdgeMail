@@ -194,6 +194,9 @@ const ALTER_STATEMENTS = [
   `ALTER TABLE \`messages\` ADD COLUMN \`delivery_updated_at\` text`,
   // P2-2: retention soft-delete marker
   `ALTER TABLE \`messages\` ADD COLUMN \`deleted_at\` text`,
+  // P3-1: multi-provider sender (Resend + Cloudflare Email Service)
+  `ALTER TABLE \`domains\` ADD COLUMN \`sender_provider\` text`,
+  `ALTER TABLE \`messages\` ADD COLUMN \`provider\` text`,
 ];
 
 /**

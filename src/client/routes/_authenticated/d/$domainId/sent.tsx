@@ -153,6 +153,7 @@ function SentPage() {
                   key={msg.id}
                   to="/d/$domainId/messages/$id"
                   params={{ domainId, id: msg.id }}
+                  search={{ folder: "sent" }}
                   className="group flex items-center gap-6 px-6 py-4 cursor-pointer transition-colors hover:bg-[hsl(var(--accent))]"
                 >
                   <div className="shrink-0">
@@ -160,7 +161,7 @@ function SentPage() {
                   </div>
                   <div className="w-40 shrink-0">
                     <span className="block truncate text-sm font-semibold text-[hsl(var(--primary))]">
-                      To: {msg.fromAddress}
+                      To: {msg.toAddresses.length > 0 ? msg.toAddresses.join(", ") : "(no recipient)"}
                     </span>
                   </div>
                   <div className="flex-1 min-w-0 flex items-baseline gap-2">

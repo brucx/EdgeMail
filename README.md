@@ -7,7 +7,7 @@
 ## Features
 
 - 📬 **Custom Domain Email** — receive emails on your own domain via Cloudflare Email Routing
-- 📤 **Send Emails** — send from your domain using Resend
+- 📤 **Send Emails** — pick per domain between **Cloudflare Email Service** (no extra vendor, auto SPF/DKIM/DMARC) and **Resend**
 - 🌐 **Multi-Domain** — manage multiple domains from a single instance with domain-scoped views
 - 📮 **Mailboxes** — create and manage mailboxes
 - 🔀 **Aliases** — forward emails to one or more mailboxes
@@ -27,7 +27,8 @@
 - [Cloudflare D1](https://developers.cloudflare.com/d1/) — SQLite database
 - [Cloudflare R2](https://developers.cloudflare.com/r2/) — object storage
 - [Cloudflare Email Workers](https://developers.cloudflare.com/email-routing/email-workers/) — inbound email processing
-- [Resend](https://resend.com/) — outbound email API
+- [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) — outbound (optional, recommended on Workers Paid)
+- [Resend](https://resend.com/) — outbound (default fallback, free tier friendly)
 
 ### Frontend
 - [React 19](https://react.dev/) — UI library
@@ -47,8 +48,8 @@
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- [Cloudflare account](https://dash.cloudflare.com/sign-up) (free plan works)
-- [Resend account](https://resend.com/) (free tier: 3,000 emails/month)
+- [Cloudflare account](https://dash.cloudflare.com/sign-up) (Workers Paid plan if you want to send via Cloudflare Email Service; Free plan works for receiving and for sending via Resend)
+- [Resend account](https://resend.com/) (free tier: 3,000 emails/month) — only needed when you pick the Resend provider
 - A domain added to Cloudflare
 
 ## Quick Start
@@ -203,7 +204,7 @@ EdgeMail/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `RESEND_API_KEY` | Default Resend API key used when a domain has no per-domain override | Yes |
+| `RESEND_API_KEY` | Default Resend API key used when a domain has no per-domain override | Only if Resend is used |
 | `JWT_SECRET` | Secret for signing session tokens | Yes |
 | `ADMIN_EMAIL` | Primary admin email for setup and notifications | Yes |
 | `ENCRYPTION_KEY` | Base64-encoded 32-byte AES-GCM key used to encrypt per-domain secrets stored in D1 (`openssl rand -base64 32`) | Yes |
@@ -215,6 +216,64 @@ EdgeMail/
 
 Set secret values via `npx wrangler secret put <NAME>` for production, or in `.dev.vars` for local dev.
 Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and `ADMIN_EMAIL`.
+
+## Outbound Provider
+
+Each domain picks one of two providers for outbound mail, configurable via the
+`senderProvider` field on the domain record (NULL = auto-pick).
+
+| Provider | How it sends | Pros | Cons |
+|----------|--------------|------|------|
+| `cloudflare` | `env.EMAIL.send()` via the [`send_email`](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) Worker binding | Auto SPF/DKIM/DMARC; no extra vendor or secret management; cheaper at scale ($0.35 / 1K after 3K/month) | Requires **Workers Paid** for arbitrary recipients (Free / new accounts can only send to verified destination addresses); no delivery webhooks today; 25 MiB / 50-recipient / 16 KB-header per-message caps |
+| `resend` | [Resend API](https://resend.com) | Works on Workers Free; delivery + bounce webhooks; 40 MB attachments | Extra vendor; per-domain or global API key must be managed |
+
+**Auto-pick rules** (when the domain leaves `senderProvider` NULL):
+
+1. Prefer `cloudflare` when the `EMAIL` binding is configured.
+2. Fall back to `resend` when an API key is available (per-domain override or `RESEND_API_KEY`).
+3. Otherwise send returns an error with setup guidance.
+
+### Enabling Cloudflare Email Service
+
+1. Upgrade the account to **Workers Paid** if you plan to send to external recipients.
+2. In [Email Service → Domains](https://dash.cloudflare.com/?to=/:account/email/sending/domains), **Onboard Domain** for each sender domain. Cloudflare writes SPF/DKIM/DMARC records automatically under `cf-bounce.<your-domain>`. Wait for the status to turn **Verified** (usually 1–5 minutes).
+3. The `send_email` binding is already enabled by default in `wrangler.jsonc`:
+   ```jsonc
+   "send_email": [{ "name": "EMAIL", "remote": true }]
+   ```
+   `remote: true` is required so `wrangler dev` routes sends through the live service instead of a local stub. Remove the whole block if you never want the Cloudflare provider.
+4. Deploy: `npm run deploy`.
+5. In EdgeMail → **Settings → Sending**, each domain row shows an **Onboarded** badge when `cf-bounce._domainkey.<domain>` resolves, or **Not onboarded** if the CF Email Service setup is incomplete. Leave `senderProvider` on `auto` or set it explicitly to `cloudflare`.
+
+### Troubleshooting: recipient shows "sender cannot be verified"
+
+If a test email arrives but the recipient (commonly QQ Mail / 网易 / Outlook) flags it as unauthenticated, pull the raw headers and look at `Authentication-Results`.
+
+**Symptom — domain not onboarded to Email Service:**
+```
+dkim=fail (No key) header.d=cloudflare-email.com
+dmarc=fail (p=REJECT) header.from=<your-domain>
+```
+This means Cloudflare is falling back to the shared `cloudflare-email.com` DKIM signing domain because the sender domain isn't actually onboarded. The signature then can't align with `header.from` → DMARC fails → strict receivers reject or warn. DNS records being present is not enough; the domain must also appear as **Verified** in **Email Service → Email Sending → Domains**.
+
+**Fix:** Onboard the domain in the CF dashboard (step 2 above). EdgeMail's Sending page will update the per-domain badge once `cf-bounce._domainkey.<domain>` TXT resolves.
+
+> **Heads-up on propagation delay:** right after onboarding, some recipient providers (notably QQ Mail / 163 / other providers with aggressive DNS caches) may still fail DKIM for 5–30 minutes while their recursive resolvers refresh. Gmail / Outlook typically see the new record within 1–2 minutes. If only certain recipients fail while others pass, wait and re-test before assuming misconfiguration.
+
+**Expected headers after onboarding:**
+```
+dkim=pass  header.d=cf-bounce.<your-domain>
+spf=pass   smtp.mailfrom=bounces@cf-bounce.<your-domain>
+dmarc=pass header.from=<your-domain>
+```
+
+**Note on "Sent by bounces@cf-bounce.… on behalf":** this line that some clients show is normal and not an error — Cloudflare (like AWS SES, Resend, Mailgun) uses a bounce subdomain as the envelope sender to isolate bounce reputation from the main domain. It does not affect DMARC alignment when relaxed mode is used (the default).
+
+### Enabling Resend
+
+1. Create a Resend account and verify the domain via the records Resend provides.
+2. Set `RESEND_API_KEY` (global) and/or a per-domain key through EdgeMail → **Domain settings**.
+3. Optionally set `RESEND_WEBHOOK_SECRET` and point Resend's webhook at `POST /api/webhooks/resend` for delivery state updates.
 
 ## API Endpoints
 
@@ -231,7 +290,7 @@ Use `wrangler.jsonc` or the dashboard for non-secret vars such as `APP_NAME` and
 | `GET/POST/PATCH/DELETE` | `/api/aliases/*` | Alias management |
 | `GET/POST/PATCH/DELETE` | `/api/groups/*` | Group management |
 | `GET/PATCH` | `/api/messages/*` | Message list & detail |
-| `POST` | `/api/send` | Send email via Resend |
+| `POST` | `/api/send` | Send email via the domain's configured provider (Resend or Cloudflare Email Service) |
 | `GET/POST/DELETE` | `/api/tokens/*` | API token management |
 | `POST` | `/api/webhooks/resend` | Resend delivery webhook |
 | `GET` | `/api/cloudflare/status` | Check Cloudflare API connection |
@@ -267,6 +326,21 @@ npm run db:migrate:remote# Apply migrations to remote D1
 npm run db:studio        # Open Drizzle Studio
 npm run typegen          # Generate Cloudflare binding types
 ```
+
+## Roadmap
+
+Planned iterations on top of the multi-provider send work already landed:
+
+### Shipped
+- **Multi-provider outbound** — Cloudflare Email Service + Resend, per-domain selection (this PR)
+
+### Next up
+- **Email threading** — `messageIdHeader`, `inReplyTo`, `references`, `threadId`, and `normalizedSubject` on `messages`; `GET /api/messages/threads/:threadId`; conversation view in the UI. Informed by the Cloudflare [Agentic Inbox](https://github.com/cloudflare/agentic-inbox) reference.
+- **Inbound auto-reply** — per-mailbox `autoReplyEnabled` + subject/body with `Auto-Submitted` header loop-prevention.
+- **One-click Cloudflare sending** — extend `/api/cloudflare/zones/:zoneId/setup` to also add the domain to Email Service so users only click once to receive + send.
+
+### Future (not started)
+- **AI agent + MCP server** — optional module that adds (a) an AI-drafted reply on inbound mail, (b) a `/mcp` endpoint that exposes mailbox tools (list/get/search/draft/send) to Claude Code, Cursor, and other MCP clients, with prompt-injection scanning and draft verification on Workers AI. Gated behind an `AI` binding so the core product stays slim; opt-in per mailbox. See `~/code/agentic-inbox` for the reference implementation this draws from.
 
 ## License
 

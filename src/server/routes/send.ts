@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
-import { Resend } from "resend";
+import { eq, isNotNull, sql } from "drizzle-orm";
 import type { Env, AppVariables } from "../env";
 import {
   mailboxes,
@@ -14,7 +13,8 @@ import {
 import { generateId } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rate-limit";
-import { decryptSecret } from "../lib/crypto";
+import { resolveMailer, MailerError } from "../services/mailer";
+import { getSendCapabilities } from "../services/mailer/capabilities";
 import { sendEmailSchema } from "@shared/types";
 
 const sendRouter = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -57,8 +57,37 @@ sendRouter.use(
 );
 
 /**
+ * GET /api/send/capabilities
+ *
+ * Advisory summary of which outbound providers look ready. Drives the UI
+ * "Sending status" card so operators see guidance (upgrade to Paid, add a
+ * Resend key, onboard the domain, etc.) before they hit a send failure.
+ *
+ * Not authoritative — the real source of truth is POST /api/send.
+ */
+sendRouter.get("/capabilities", async (c) => {
+  const db = c.get("db");
+  const [perDomainKeyCount, domainRows] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(domains)
+      .where(isNotNull(domains.resendApiKey))
+      .then((rows) => Number(rows[0]?.n ?? 0)),
+    db.select({ domain: domains.domain }).from(domains),
+  ]);
+  const caps = await getSendCapabilities(
+    c.env,
+    perDomainKeyCount,
+    domainRows.map((r) => r.domain),
+  );
+  return c.json({ data: caps });
+});
+
+/**
  * POST /api/send
- * Send an email via Resend.
+ * Send an email through the mailer (Resend or Cloudflare Email Service,
+ * picked per-domain by services/mailer/resolveMailer).
+ *
  * Body: { from, to, cc?, bcc?, subject, html?, text? }
  */
 sendRouter.post(
@@ -92,8 +121,6 @@ sendRouter.post(
       return c.json({ error: `Mailbox ${from} is not authorized to send emails` }, 403);
     }
 
-    // Resolve Resend API key: per-domain override > global fallback.
-    let resendApiKey = c.env.RESEND_API_KEY;
     const senderDomain = await db
       .select()
       .from(domains)
@@ -101,104 +128,100 @@ sendRouter.post(
       .limit(1)
       .then((rows) => rows[0]);
 
-    if (senderDomain?.resendApiKey) {
-      if (!c.env.ENCRYPTION_KEY) {
-        log.error("ENCRYPTION_KEY missing; cannot decrypt per-domain Resend key");
-        return c.json(
-          { error: "Server is misconfigured: ENCRYPTION_KEY is required to use per-domain Resend keys" },
-          500,
-        );
-      }
-      try {
-        resendApiKey = await decryptSecret(senderDomain.resendApiKey, c.env);
-      } catch (err) {
-        log.error("failed to decrypt per-domain Resend key", { err });
-        return c.json(
-          { error: "Failed to decrypt per-domain Resend key. Re-save it in the domain settings." },
-          500,
-        );
-      }
-    }
-
-    if (!resendApiKey) {
-      return c.json(
-        { error: "No Resend API key is configured for this domain or globally" },
-        500,
-      );
-    }
-
-    const resend = new Resend(resendApiKey);
-
+    let mailer;
     try {
-      // Resend's typed overloads require either `html`, `text`, or `react`
-      // to be present. Zod already ensures at least one is a non-empty
-      // string at the schema level; the cast keeps the type narrow.
-      const result = await resend.emails.send({
-        from,
-        to,
-        cc: cc || undefined,
-        bcc: bcc || undefined,
-        subject,
-        html: html || undefined,
-        text: text || undefined,
-      } as Parameters<typeof resend.emails.send>[0]);
-
-      if (result.error) {
-        log.error("Resend send rejected", { err: result.error });
-        return c.json({ error: `Failed to send email: ${result.error.message}` }, 502);
-      }
-
-      // Store sent message in D1 (batch for atomicity)
-      const messageId = generateId();
-      const recipientRows = [
-        ...to.map((addr) => ({ id: generateId(), messageId, address: addr, type: "to" as const })),
-        ...(cc ?? []).map((addr) => ({ id: generateId(), messageId, address: addr, type: "cc" as const })),
-        ...(bcc ?? []).map((addr) => ({ id: generateId(), messageId, address: addr, type: "bcc" as const })),
-      ];
-
-      const stmts = [
-        db.insert(messages).values({
-          id: messageId,
-          messageId: result.data?.id || null,
-          fromAddress: from,
-          fromName: senderMailbox.displayName,
-          subject,
-          textBody: text || null,
-          htmlBody: html || null,
-          size: (text?.length || 0) + (html?.length || 0),
-          deliveryStatus: "sent",
-          deliveryUpdatedAt: new Date().toISOString(),
-        }),
-        ...recipientRows.map((row) => db.insert(messageRecipients).values(row)),
-        db.insert(messageDeliveries).values({
-          id: generateId(),
-          messageId,
-          mailboxId: senderMailbox.id,
-          folder: "sent",
-          isRead: true,
-        }),
-        db.insert(auditLogs).values({
-          id: generateId(),
-          userId: c.get("userId"),
-          action: "email.send",
-          resourceType: "message",
-          resourceId: messageId,
-          details: JSON.stringify({ from, to, subject }),
-        }),
-      ];
-
-      await db.batch(stmts as unknown as [typeof stmts[number], ...typeof stmts]);
-
-      log.info("email sent", { messageId, resendId: result.data?.id, to: to.length });
-
-      return c.json({
-        data: { id: messageId, resendId: result.data?.id },
-        message: "Email sent successfully",
+      mailer = await resolveMailer(c.env, {
+        senderProvider: senderDomain?.senderProvider ?? null,
+        resendApiKey: senderDomain?.resendApiKey ?? null,
       });
     } catch (err) {
-      log.error("send error", { err });
+      if (err instanceof MailerError) {
+        log.error("mailer resolution failed", { err: err.message, provider: err.provider });
+        return c.json({ error: err.message }, err.userVisible ? 400 : 500);
+      }
+      throw err;
+    }
+
+    let result;
+    try {
+      result = await mailer.send({
+        from,
+        fromName: senderMailbox.displayName,
+        to,
+        cc,
+        bcc,
+        subject,
+        html,
+        text,
+      });
+    } catch (err) {
+      if (err instanceof MailerError) {
+        // Pass the Error object itself so the logger's Error serializer
+        // preserves stack trace & nested cause for Workers Tail.
+        log.error("mailer send rejected", { provider: err.provider, err });
+        return c.json({ error: `Failed to send email: ${err.message}` }, 502);
+      }
+      log.error("send error (unexpected)", { err });
       return c.json({ error: "Failed to send email" }, 500);
     }
+
+    // Persist sent message and recipient/delivery rows in a single batch.
+    const messageId = generateId();
+    const recipientRows = [
+      ...to.map((addr) => ({ id: generateId(), messageId, address: addr, type: "to" as const })),
+      ...(cc ?? []).map((addr) => ({ id: generateId(), messageId, address: addr, type: "cc" as const })),
+      ...(bcc ?? []).map((addr) => ({ id: generateId(), messageId, address: addr, type: "bcc" as const })),
+    ];
+
+    const stmts = [
+      db.insert(messages).values({
+        id: messageId,
+        messageId: result.providerMessageId,
+        fromAddress: from,
+        fromName: senderMailbox.displayName,
+        subject,
+        textBody: text || null,
+        htmlBody: html || null,
+        size: (text?.length || 0) + (html?.length || 0),
+        deliveryStatus: "sent",
+        deliveryUpdatedAt: new Date().toISOString(),
+        provider: result.provider,
+      }),
+      ...recipientRows.map((row) => db.insert(messageRecipients).values(row)),
+      db.insert(messageDeliveries).values({
+        id: generateId(),
+        messageId,
+        mailboxId: senderMailbox.id,
+        folder: "sent",
+        isRead: true,
+      }),
+      db.insert(auditLogs).values({
+        id: generateId(),
+        userId: c.get("userId"),
+        action: "email.send",
+        resourceType: "message",
+        resourceId: messageId,
+        details: JSON.stringify({ from, to, subject, provider: result.provider }),
+      }),
+    ];
+
+    await db.batch(stmts as unknown as [typeof stmts[number], ...typeof stmts]);
+
+    log.info("email sent", {
+      messageId,
+      providerMessageId: result.providerMessageId,
+      provider: result.provider,
+      to: to.length,
+    });
+
+    return c.json({
+      data: {
+        id: messageId,
+        providerMessageId: result.providerMessageId,
+        provider: result.provider,
+      },
+      message: "Email sent successfully",
+    });
   },
 );
 

@@ -15,6 +15,11 @@ export interface Env {
   // disabled with a warning log (see middleware/rate-limit.ts).
   RATE_LIMIT_KV?: KVNamespace;
 
+  // Cloudflare Email Service `send_email` binding. Optional — when absent,
+  // the mailer falls back to Resend. See wrangler.jsonc for the binding stub
+  // and src/server/services/mailer for provider selection rules.
+  EMAIL?: SendEmail;
+
   // Environment variables (secrets — set via wrangler secret put or .dev.vars)
   RESEND_API_KEY: string;
   JWT_SECRET: string;

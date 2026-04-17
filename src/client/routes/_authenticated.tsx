@@ -64,8 +64,17 @@ function AuthenticatedLayout() {
   });
   const domains = domainsData?.data ?? [];
 
-  const searchParams = useSearch({ strict: false }) as { q?: string };
+  const searchParams = useSearch({ strict: false }) as {
+    q?: string;
+    folder?: "inbox" | "sent";
+  };
   const searchQuery = searchParams.q || "";
+  // When viewing a message detail page the URL path is /d/:id/messages/:id so
+  // neither /inbox nor /sent is in the pathname. The list views add a
+  // `folder=inbox|sent` search param when navigating to the detail so the
+  // sidebar can still highlight the originating folder.
+  const onMessageDetail = /^\/d\/[^/]+\/messages\/[^/]+/.test(location.pathname);
+  const detailFolder = onMessageDetail ? searchParams.folder : undefined;
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value || undefined;
@@ -210,7 +219,10 @@ function AuthenticatedLayout() {
           {currentDomainId && (
             <>
               {domainNavItems.map((item) => {
-                const isActive = location.pathname.startsWith(`/d/${currentDomainId}/${item.path.split("/").pop()}`);
+                const slug = item.path.split("/").pop(); // "inbox" | "sent"
+                const isActive =
+                  location.pathname.startsWith(`/d/${currentDomainId}/${slug}`) ||
+                  detailFolder === slug;
                 return (
                   <Link
                     key={item.path}

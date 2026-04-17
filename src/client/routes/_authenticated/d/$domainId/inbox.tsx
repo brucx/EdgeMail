@@ -205,6 +205,7 @@ function InboxPage() {
                   key={msg.id}
                   to="/d/$domainId/messages/$id"
                   params={{ domainId, id: msg.id }}
+                  search={{ folder: "inbox" }}
                   onClick={() => {
                     if (!msg.isRead) {
                       markReadMutation.mutate({
