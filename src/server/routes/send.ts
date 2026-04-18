@@ -230,6 +230,9 @@ sendRouter.post(
       db.insert(auditLogs).values({
         id: generateId(),
         userId: c.get("userId"),
+        // One of userId/apiTokenId will be null depending on auth mode.
+        // requireAuth guarantees at least one is set.
+        apiTokenId: c.get("apiTokenId"),
         action: "email.send",
         resourceType: "message",
         resourceId: messageId,

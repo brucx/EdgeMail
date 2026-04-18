@@ -1,0 +1,1 @@
+ALTER TABLE `audit_logs` ADD `api_token_id` text REFERENCES api_tokens(id);

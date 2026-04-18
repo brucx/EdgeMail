@@ -443,11 +443,39 @@ function DomainOnboardBadge({
   if (caps && pref === "auto" && caps.defaultProvider !== "cloudflare") {
     return null;
   }
-  // From here on, the domain is (or will be) sending via Cloudflare.
-  const status = caps?.cloudflare.domainStatus?.find(
+  // Caps still loading — show a transient spinner.
+  if (!caps) {
+    return (
+      <Badge
+        className="bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+        title="Checking cf-bounce._domainkey TXT record to verify Cloudflare Email Sending onboarding."
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Verifying CF onboarding…
+      </Badge>
+    );
+  }
+  // Caps loaded but the server skipped the DNS probe — happens when the
+  // send_email binding is not bound on this Worker. A domain explicitly set
+  // to Cloudflare in that state will never actually be able to send; flag it
+  // instead of spinning forever.
+  if (!caps.cloudflare.bindingConfigured) {
+    return (
+      <Badge
+        variant="destructive"
+        title="This domain is set to Cloudflare, but the send_email binding is not configured on this Worker. Uncomment the binding in wrangler.jsonc or switch the provider to Resend."
+      >
+        <AlertTriangle className="h-3 w-3" />
+        CF binding missing
+      </Badge>
+    );
+  }
+  const status = caps.cloudflare.domainStatus?.find(
     (d) => d.domain === domain.domain,
   );
-  if (!caps || !status) {
+  // Binding is configured but the per-domain DNS result hasn't arrived yet
+  // (e.g., DoH failed). Fall back to the spinner rather than guessing.
+  if (!status) {
     return (
       <Badge
         className="bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
