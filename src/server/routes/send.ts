@@ -11,7 +11,7 @@ import {
   domains,
 } from "../db/schema";
 import { generateId } from "../lib/id";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requirePermission } from "../middleware/auth";
 import { rateLimit } from "../middleware/rate-limit";
 import { resolveMailer, MailerError } from "../services/mailer";
 import { getSendCapabilities } from "../services/mailer/capabilities";
@@ -74,30 +74,42 @@ sendRouter.get("/capabilities", async (c) => {
   utcMidnight.setUTCHours(0, 0, 0, 0);
   const utcMidnightStr = utcMidnight.toISOString().slice(0, 19).replace("T", " ");
 
-  const [perDomainKeyCount, domainRows, cloudflareSentToday] = await Promise.all([
-    db
-      .select({ n: sql<number>`count(*)` })
-      .from(domains)
-      .where(isNotNull(domains.resendApiKey))
-      .then((rows) => Number(rows[0]?.n ?? 0)),
-    db.select({ domain: domains.domain }).from(domains),
-    db
-      .select({ n: sql<number>`count(*)` })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.provider, "cloudflare"),
-          gte(messages.createdAt, utcMidnightStr),
-        ),
-      )
-      .then((rows) => Number(rows[0]?.n ?? 0)),
-  ]);
+  const [perDomainKeyCount, domainRows, cloudflareSentToday, resendSentToday] =
+    await Promise.all([
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(domains)
+        .where(isNotNull(domains.resendApiKey))
+        .then((rows) => Number(rows[0]?.n ?? 0)),
+      db.select({ domain: domains.domain }).from(domains),
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.provider, "cloudflare"),
+            gte(messages.createdAt, utcMidnightStr),
+          ),
+        )
+        .then((rows) => Number(rows[0]?.n ?? 0)),
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.provider, "resend"),
+            gte(messages.createdAt, utcMidnightStr),
+          ),
+        )
+        .then((rows) => Number(rows[0]?.n ?? 0)),
+    ]);
 
   const caps = await getSendCapabilities(
     c.env,
     perDomainKeyCount,
     domainRows.map((r) => r.domain),
     cloudflareSentToday,
+    resendSentToday,
   );
   return c.json({ data: caps });
 });
@@ -111,6 +123,7 @@ sendRouter.get("/capabilities", async (c) => {
  */
 sendRouter.post(
   "/",
+  requirePermission("send:messages"),
   zValidator("json", sendEmailSchema, (result, c) => {
     if (!result.success) {
       return c.json(

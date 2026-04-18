@@ -1,5 +1,6 @@
 import type { Env } from "../../env";
 import { cfFetch, CloudflareApiError } from "../cloudflare/api";
+import { maskSecret } from "../../lib/crypto";
 
 /**
  * Cloudflare error codes we special-case. 10001 is "Unable to authenticate
@@ -50,8 +51,16 @@ export interface SendCapabilities {
   resend: {
     /** Global RESEND_API_KEY secret is set to a plausible value. */
     globalConfigured: boolean;
+    /** Masked display hint for the global key (e.g. "re_a…wxyz"). NULL when
+     *  not configured. Never returns the plaintext. */
+    globalKeyHint: string | null;
     /** Number of domains that have a per-domain Resend API key override. */
     perDomainKeys: number;
+    /** Number of outbound messages EdgeMail sent through the resend provider
+     *  since UTC midnight. Local count — does not include sends from other
+     *  tools using the same API key. Resend has no REST endpoint to query
+     *  plan quotas, so we only surface what we know. */
+    usedToday: number | null;
   };
   /** Best guess of which provider will be used when a domain leaves
    *  `senderProvider` at auto. Mirrors resolveMailer() for UI display. */
@@ -249,6 +258,9 @@ export async function getSendCapabilities(
   /** Number of cloudflare-provider sends since UTC midnight; counted by the
    *  caller (D1 query) so capabilities.ts stays DB-agnostic. */
   usedToday: number | null = null,
+  /** Number of resend-provider sends since UTC midnight; counted by the
+   *  caller (D1 query). */
+  resendUsedToday: number | null = null,
 ): Promise<SendCapabilities> {
   const bindingConfigured = Boolean(env.EMAIL);
   const [probe, domainStatus, quota] = await Promise.all([
@@ -297,7 +309,9 @@ export async function getSendCapabilities(
     },
     resend: {
       globalConfigured,
+      globalKeyHint: globalConfigured ? maskSecret(env.RESEND_API_KEY) : null,
       perDomainKeys,
+      usedToday: resendUsedToday,
     },
     defaultProvider,
   };

@@ -228,7 +228,7 @@ export interface AttachmentInfo {
 
 export const createApiTokenSchema = z.object({
   name: z.string().min(1).max(100),
-  permissions: z.array(z.enum(["read:messages"])).min(1),
+  permissions: z.array(z.enum(["read:messages", "send:messages"])).min(1),
   domainId: z.string().optional(),
   expiresAt: z.string().optional(),
 });
@@ -287,7 +287,14 @@ export interface SendCapabilitiesResponse {
   };
   resend: {
     globalConfigured: boolean;
+    /** Masked display hint for RESEND_API_KEY (e.g. "re_a…wxyz"). Null when
+     *  unconfigured. Never contains plaintext. */
+    globalKeyHint: string | null;
     perDomainKeys: number;
+    /** Sends initiated by EdgeMail through the resend provider since UTC
+     *  midnight. Local count — Resend has no REST endpoint to query plan
+     *  quotas, so only our own usage is visible. */
+    usedToday: number | null;
   };
   defaultProvider: "cloudflare" | "resend" | "none";
 }

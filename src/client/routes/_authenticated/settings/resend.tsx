@@ -5,7 +5,9 @@ import {
   CheckCircle2,
   CircleHelp,
   Cloud,
+  ExternalLink,
   Globe,
+  Loader2,
   Mail,
   Pencil,
   Trash2,
@@ -30,20 +32,6 @@ type SenderProviderValue = "auto" | "cloudflare" | "resend";
 
 function senderProviderOf(d: DomainInfo): SenderProviderValue {
   return d.senderProvider ?? "auto";
-}
-
-/** The provider that will actually be used for a domain given its preference
- *  and the current capabilities. Mirrors server-side resolveMailer(). */
-function effectiveProvider(
-  d: DomainInfo,
-  caps: SendCapabilitiesResponse | undefined,
-): "cloudflare" | "resend" | "none" {
-  const pref = senderProviderOf(d);
-  if (pref === "cloudflare") return "cloudflare";
-  if (pref === "resend") return "resend";
-  // auto
-  if (!caps) return "none";
-  return caps.defaultProvider;
 }
 
 function SendingPage() {
@@ -410,9 +398,16 @@ function SendingStatusCard({
           message={
             resendReady
               ? [
-                  caps.resend.globalConfigured ? "Global API key set." : null,
+                  caps.resend.globalConfigured
+                    ? caps.resend.globalKeyHint
+                      ? `Global API key set (${caps.resend.globalKeyHint}).`
+                      : "Global API key set."
+                    : null,
                   caps.resend.perDomainKeys > 0
                     ? `${caps.resend.perDomainKeys} per-domain override${caps.resend.perDomainKeys === 1 ? "" : "s"}.`
+                    : null,
+                  caps.resend.usedToday !== null
+                    ? `${caps.resend.usedToday.toLocaleString()} sent today.`
                     : null,
                 ]
                   .filter(Boolean)
@@ -441,27 +436,51 @@ function DomainOnboardBadge({
   domain: DomainInfo;
   caps: SendCapabilitiesResponse | undefined;
 }) {
-  // Only meaningful when this domain will actually send via Cloudflare.
-  const effective = effectiveProvider(domain, caps);
-  if (effective !== "cloudflare") return null;
-  const status = caps?.cloudflare.domainStatus?.find((d) => d.domain === domain.domain);
-  if (!status) return null;
+  const pref = senderProviderOf(domain);
+  // Domain explicitly opted out of Cloudflare — CF onboarding is irrelevant.
+  if (pref === "resend") return null;
+  // On Auto, defer to the resolved default. If caps says it won't be CF, hide.
+  if (caps && pref === "auto" && caps.defaultProvider !== "cloudflare") {
+    return null;
+  }
+  // From here on, the domain is (or will be) sending via Cloudflare.
+  const status = caps?.cloudflare.domainStatus?.find(
+    (d) => d.domain === domain.domain,
+  );
+  if (!caps || !status) {
+    return (
+      <Badge
+        className="bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+        title="Checking cf-bounce._domainkey TXT record to verify Cloudflare Email Sending onboarding."
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Verifying CF onboarding…
+      </Badge>
+    );
+  }
   if (status.onboarded) {
     return (
-      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+      <Badge
+        className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+        title="cf-bounce._domainkey TXT record resolves — this domain is onboarded to Cloudflare Email Sending."
+      >
         <CheckCircle2 className="h-3 w-3" />
-        Onboarded
+        CF onboarded
       </Badge>
     );
   }
   return (
-    <Badge
-      variant="destructive"
-      title="No cf-bounce._domainkey TXT record found. Outbound mail will be DKIM-signed by the shared cloudflare-email.com key and fail DMARC alignment — most receivers (QQ, Outlook, strict Gmail) will reject or flag it. Onboard this domain at Cloudflare → Email Service → Email Sending → Domains."
+    <a
+      href="https://dash.cloudflare.com/?to=/:account/email-service/sending/domains"
+      target="_blank"
+      rel="noreferrer"
+      title="No cf-bounce._domainkey TXT record found. Outbound mail will be DKIM-signed by the shared cloudflare-email.com key and fail DMARC alignment — most receivers (QQ, Outlook, strict Gmail) will reject or flag it. Click to onboard in Cloudflare Dashboard."
+      className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--destructive))] px-2 py-0.5 text-xs font-medium text-[hsl(var(--destructive-foreground))] transition-opacity hover:opacity-90"
     >
       <AlertTriangle className="h-3 w-3" />
-      Not onboarded
-    </Badge>
+      CF not onboarded
+      <ExternalLink className="h-3 w-3" />
+    </a>
   );
 }
 

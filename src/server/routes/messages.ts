@@ -8,12 +8,13 @@ import {
   attachments,
   mailboxes,
 } from "../db/schema";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requirePermission } from "../middleware/auth";
 import { sanitizeHtml } from "../lib/html-sanitize";
 
 const messagesRouter = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 messagesRouter.use("/*", requireAuth);
+messagesRouter.use("/*", requirePermission("read:messages"));
 
 /**
  * GET /api/messages

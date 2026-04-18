@@ -14,9 +14,10 @@ function ApiTokensPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{name: string, domainId: string, permissions: string[]}>({
     name: "",
     domainId: "",
+    permissions: ["read:messages"],
   });
   const [error, setError] = useState("");
 
@@ -36,7 +37,7 @@ function ApiTokensPage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
       setNewToken(result.token);
-      setForm({ name: "", domainId: "" });
+      setForm({ name: "", domainId: "", permissions: ["read:messages"] });
       setError("");
     },
     onError: (err: Error) => setError(err.message),
@@ -55,7 +56,7 @@ function ApiTokensPage() {
     e.preventDefault();
     createMutation.mutate({
       name: form.name,
-      permissions: ["read:messages"],
+      permissions: form.permissions,
       domainId: form.domainId || undefined,
     });
   };
@@ -156,16 +157,32 @@ function ApiTokensPage() {
                     <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
                       Permissions
                     </label>
-                    <div className="rounded-xl bg-[hsl(var(--accent))] p-3">
+                    <div className="rounded-xl bg-[hsl(var(--accent))] p-3 space-y-3">
                       <label className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
                           type="checkbox"
-                          checked
-                          disabled
+                          checked={form.permissions.includes("read:messages")}
+                          onChange={(e) => {
+                            if (e.target.checked) setForm({ ...form, permissions: [...form.permissions, "read:messages"] });
+                            else setForm({ ...form, permissions: form.permissions.filter((p) => p !== "read:messages") });
+                          }}
                           className="h-4 w-4 rounded text-[hsl(var(--primary))]"
                         />
                         <span>Read Messages</span>
                         <span className="text-xs text-[hsl(var(--outline))]">(read:messages)</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.permissions.includes("send:messages")}
+                          onChange={(e) => {
+                            if (e.target.checked) setForm({ ...form, permissions: [...form.permissions, "send:messages"] });
+                            else setForm({ ...form, permissions: form.permissions.filter((p) => p !== "send:messages") });
+                          }}
+                          className="h-4 w-4 rounded text-[hsl(var(--primary))]"
+                        />
+                        <span>Send Emails</span>
+                        <span className="text-xs text-[hsl(var(--outline))]">(send:messages)</span>
                       </label>
                     </div>
                   </div>
@@ -195,7 +212,7 @@ function ApiTokensPage() {
                     </button>
                     <button
                       type="submit"
-                      disabled={createMutation.isPending || !form.name}
+                      disabled={createMutation.isPending || !form.name || form.permissions.length === 0}
                       className="h-9 rounded-lg gradient-primary px-4 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md disabled:opacity-50"
                     >
                       {createMutation.isPending ? "Creating..." : "Create"}
